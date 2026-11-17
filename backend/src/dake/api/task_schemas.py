@@ -59,6 +59,11 @@ class TaskCustomerProgress(APIModel):
     updated: int
     completed_windows: int
     total_windows: int
+    phase: str | None = None
+    incomplete: bool = False
+    withheld: int = 0
+    analyzed_until: str | None = None
+    duration_seconds: int | None = None
 
 
 class TaskExecutionResponse(TaskExecutionHead):
@@ -74,6 +79,13 @@ class TaskExecutionResponse(TaskExecutionHead):
     sync_completed: int
     sync_total: int
     customers: list[TaskCustomerProgress]
+    backlog: int = 0
+    oldest_wait_seconds: int | None = None
+    capacity_used: int = 0
+    capacity_total: int = 0
+    isolated_count: int = 0
+    phases: dict[str, str] = Field(default_factory=dict)
+    capacity_notice: str = "共享并发额度仍会排队，不保证五分钟内完成。"
 
 
 class TaskPreviewCustomer(APIModel):

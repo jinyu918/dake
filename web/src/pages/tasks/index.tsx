@@ -440,31 +440,31 @@ function ExecutionProgress({
         <span className="task-muted">开始于 {formatTime(e.created_at)}</span>
       </div>
       {e.error && <ErrorNotice message={e.error} />}
-      <div className="task-stages">
+      <div className="task-phases">
         {[
-          '同步与客户识别',
-          e.config.operation === 'sync' ? '按范围汇总' : '分析事件',
-          '保存本轮结果',
-        ].map((label, i) => {
-          const done =
-            i === 0
-              ? e.stage !== 'discovery'
-              : i === 1
-                ? finished && e.status !== 'failed'
-                : finished &&
-                  (e.status === 'succeeded' || e.status === 'partial');
-          const current = !finished && (discovery ? i === 0 : i === 1);
-          return (
-            <div
-              key={label}
-              className={`${done ? 'done' : ''} ${current ? 'current' : ''}`}
-            >
-              <span>{done ? <Check size={14} /> : i + 1}</span>
-              {label}
-            </div>
-          );
-        })}
+          ['取数', e.phases?.fetch],
+          ['客户识别', e.phases?.discovery],
+          ['分析', e.phases?.analysis],
+        ].map(([label, phase]) => (
+          <div
+            key={label}
+            className={
+              phase === 'running' ? 'current' : phase === 'done' ? 'done' : ''
+            }
+          >
+            <span>{phase === 'done' ? <Check size={14} /> : ''}</span>
+            <strong>{label}</strong>
+            <small>
+              {phase === 'running'
+                ? '进行中'
+                : phase === 'done'
+                  ? '已有进展'
+                  : '等待'}
+            </small>
+          </div>
+        ))}
       </div>
+      <p className="task-muted">{e.capacity_notice}</p>
       <div className="task-progress-label">
         <strong>{discovery ? '同步消息窗口' : '客户处理进度'}</strong>
         <span>
@@ -487,11 +487,16 @@ function ExecutionProgress({
             ? `${percent}% · 进度自动更新`
             : '正在准备本次执行范围'}
         {e.source_errors > 0 && ` · ${e.source_errors} 次资料或群归属待确认`}
+        {e.oldest_wait_seconds != null &&
+          ` · 最早排队 ${e.oldest_wait_seconds} 秒`}
       </p>
       <div className="task-metrics">
         {[
           ['匹配客户', included.length],
           ['处理消息', e.processed],
+          ['排队', e.backlog],
+          ['占用额度', `${e.capacity_used} / ${e.capacity_total}`],
+          ['隔离', e.isolated_count],
           ['新建事件', e.created_events],
           ['更新事件', e.updated_events],
         ].map(([label, value]) => (
@@ -512,6 +517,7 @@ function ExecutionProgress({
               <tr>
                 <th>客户</th>
                 <th>状态</th>
+                <th>阶段</th>
                 <th>窗口</th>
                 <th>消息</th>
                 <th>事件 新增 / 更新</th>
@@ -534,6 +540,15 @@ function ExecutionProgress({
                     <Status status={c.status} />
                     {c.reason && (
                       <small className="task-reason">{c.reason}</small>
+                    )}
+                    {c.incomplete && (
+                      <small className="task-reason">结果可能不完整</small>
+                    )}
+                  </td>
+                  <td>
+                    {c.phase === 'live' ? '实时' : '追赶'}
+                    {c.analyzed_until && (
+                      <small>已处理至 {formatTime(c.analyzed_until)}</small>
                     )}
                   </td>
                   <td>

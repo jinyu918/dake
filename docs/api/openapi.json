@@ -45,7 +45,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -497,7 +497,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -619,7 +619,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -728,7 +728,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -857,7 +857,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -973,7 +973,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1082,7 +1082,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1197,7 +1197,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1311,7 +1311,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1366,7 +1366,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -1436,7 +1436,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -1517,7 +1517,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1571,7 +1571,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -1640,7 +1640,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -1711,7 +1711,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -1791,7 +1791,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1874,7 +1874,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -1957,7 +1957,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -2030,7 +2030,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -2084,7 +2084,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -2153,7 +2153,7 @@
             }
           },
           "422": {
-            "description": "Unprocessable Content",
+            "description": "Unprocessable Entity",
             "content": {
               "application/json": {
                 "schema": {
@@ -2257,7 +2257,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           },
           "503": {
             "content": {
@@ -7704,6 +7704,49 @@
           "total_windows": {
             "type": "integer",
             "title": "Total Windows"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "incomplete": {
+            "type": "boolean",
+            "title": "Incomplete",
+            "default": false
+          },
+          "withheld": {
+            "type": "integer",
+            "title": "Withheld",
+            "default": 0
+          },
+          "analyzed_until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Analyzed Until"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
           }
         },
         "type": "object",
@@ -7718,7 +7761,12 @@
           "created",
           "updated",
           "completed_windows",
-          "total_windows"
+          "total_windows",
+          "phase",
+          "incomplete",
+          "withheld",
+          "analyzed_until",
+          "duration_seconds"
         ],
         "title": "TaskCustomerProgress"
       },
@@ -7901,6 +7949,49 @@
             },
             "type": "array",
             "title": "Customers"
+          },
+          "backlog": {
+            "type": "integer",
+            "title": "Backlog",
+            "default": 0
+          },
+          "oldest_wait_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Wait Seconds"
+          },
+          "capacity_used": {
+            "type": "integer",
+            "title": "Capacity Used",
+            "default": 0
+          },
+          "capacity_total": {
+            "type": "integer",
+            "title": "Capacity Total",
+            "default": 0
+          },
+          "isolated_count": {
+            "type": "integer",
+            "title": "Isolated Count",
+            "default": 0
+          },
+          "phases": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Phases"
+          },
+          "capacity_notice": {
+            "type": "string",
+            "title": "Capacity Notice",
+            "default": "共享并发额度仍会排队，不保证五分钟内完成。"
           }
         },
         "type": "object",
@@ -7922,7 +8013,14 @@
           "updated_events",
           "sync_completed",
           "sync_total",
-          "customers"
+          "customers",
+          "backlog",
+          "oldest_wait_seconds",
+          "capacity_used",
+          "capacity_total",
+          "isolated_count",
+          "phases",
+          "capacity_notice"
         ],
         "title": "TaskExecutionResponse"
       },

@@ -219,8 +219,7 @@ def test_transport_posts_only_official_request_fields():
     assert request.get_header("Authorization") is None
 
 
-def test_transient_http_errors_retry_without_echoing_body(monkeypatch):
-    monkeypatch.setattr("dake.ingestion.client.time.sleep", lambda _: None)
+def test_transient_http_errors_retry_without_echoing_body():
     client = ChatRecordsClient()
     failure = HTTPError("https://example.invalid", 503, "private-content", {}, io.BytesIO(b"private-content"))
     client._opener = Opener(failure, Response(payload()))
@@ -247,8 +246,7 @@ def test_invalid_transport_response_is_redacted(value):
     assert "private-content" not in str(error.value)
 
 
-def test_network_errors_are_redacted_and_bounded(monkeypatch):
-    monkeypatch.setattr("dake.ingestion.client.time.sleep", lambda _: None)
+def test_network_errors_are_redacted_and_bounded():
     client = ChatRecordsClient(retries=1)
     client._opener = Opener(URLError("private-content"), URLError("private-content"))
     with pytest.raises(ChatRecordsError) as error:

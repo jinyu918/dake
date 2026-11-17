@@ -1522,6 +1522,16 @@ declare namespace API {
     completed_windows: number;
     /** Total Windows */
     total_windows: number;
+    /** Phase */
+    phase: string | null;
+    /** Incomplete */
+    incomplete: boolean;
+    /** Withheld */
+    withheld: number;
+    /** Analyzed Until */
+    analyzed_until: string | null;
+    /** Duration Seconds */
+    duration_seconds: number | null;
   };
 
   type TaskExecutionHead = {
@@ -1582,6 +1592,20 @@ declare namespace API {
     sync_total: number;
     /** Customers */
     customers: TaskCustomerProgress[];
+    /** Backlog */
+    backlog: number;
+    /** Oldest Wait Seconds */
+    oldest_wait_seconds: number | null;
+    /** Capacity Used */
+    capacity_used: number;
+    /** Capacity Total */
+    capacity_total: number;
+    /** Isolated Count */
+    isolated_count: number;
+    /** Phases */
+    phases: Record<string, any>;
+    /** Capacity Notice */
+    capacity_notice: string;
   };
 
   type TaskList = {

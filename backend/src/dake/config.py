@@ -103,6 +103,10 @@ class Settings:
     llm_model: str = "gpt-6.1-sol"
     llm_max_tokens: int = 8192
     llm_timeout_seconds: int = 120
+    analysis_slots: int = 2
+    live_reserved: int = 1
+    lease_seconds: int = 30
+    fetch_ahead: int = 2
     # 待确认：合理的本地缺省，不代表官方状态/等级标准。
     default_status: str = UNKNOWN
     default_severity: str = UNKNOWN
@@ -147,6 +151,10 @@ class Settings:
             llm_model=get("XHub_MODEL", "gpt-6.1-sol"),
             llm_max_tokens=int(get("XHub_MAX_TOKENS", "8192")),
             llm_timeout_seconds=int(get("XHub_TIMEOUT_SECONDS", "120")),
+            analysis_slots=int(get("ANALYSIS_SLOTS", "2")),
+            live_reserved=int(get("LIVE_RESERVED", "1")),
+            lease_seconds=int(get("LEASE_SECONDS", "30")),
+            fetch_ahead=int(get("FETCH_AHEAD", "2")),
             default_status=get("DEFAULT_STATUS", UNKNOWN),
             default_severity=get("DEFAULT_SEVERITY", UNKNOWN),
             closed_statuses=tuple(s.strip() for s in get("CLOSED_STATUSES", "").split(",") if s.strip()),
@@ -170,6 +178,10 @@ class Settings:
             raise ValueError("LLM_PROVIDER 仅支持 stub 或 xhub")
         if not self.llm_model or not 1 <= self.llm_max_tokens <= 8192 or not 1 <= self.llm_timeout_seconds <= 300:
             raise ValueError("模型名称、输出上限或超时配置无效")
+        if self.analysis_slots < 1 or not 0 <= self.live_reserved <= self.analysis_slots or self.fetch_ahead < 1:
+            raise ValueError("分析并发额度不合法")
+        if not 1 <= self.lease_seconds <= 3600:
+            raise ValueError("执行租约时长不合法")
 
     def store_kwargs(self) -> dict:
         """将数据库配置交给存储组件；调用方不得记录返回的凭据。"""

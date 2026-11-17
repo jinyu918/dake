@@ -49,6 +49,7 @@ def main(argv=None):
             files = []
             if args.suite in {"executions", "all"}:
                 files.append(str(root / "backend/tests/test_execution_mysql.py"))
+                files.append(str(root / "backend/tests/test_pipeline_mysql.py"))
             if args.suite in {"panel", "all"}:
                 files.append(str(root / "backend/tests/test_execution_panel_mysql.py"))
             plugin = DatabasePlugin(target)

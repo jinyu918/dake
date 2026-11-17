@@ -5,7 +5,6 @@ from http.client import HTTPException
 import json
 import re
 import socket
-import time
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
@@ -101,12 +100,10 @@ class ChatRecordsClient:
                 code = exc.code
                 exc.close()
                 if code in (408, 429, 500, 502, 503, 504) and attempt < self.retries:
-                    time.sleep(min(2**attempt, 4))
                     continue
                 raise ChatRecordsError(f"官方取数接口 HTTP {code}；未记录响应正文") from None
             except (URLError, TimeoutError, socket.timeout, ConnectionError, OSError, HTTPException):
                 if attempt < self.retries:
-                    time.sleep(min(2**attempt, 4))
                     continue
                 raise ChatRecordsError("官方取数接口网络连接失败；请检查内网与服务状态") from None
             try:

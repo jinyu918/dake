@@ -547,7 +547,7 @@ def test_all_customer_timer_window_pause_failure_resume_and_empty_window(explici
     interrupted = runs.claim_next(runner.runner_id)
     assert interrupted and interrupted["request"]["mode"] == "official"
     failed_uid = interrupted["uid"]
-    runs.recover_interrupted()
+    runs.finish(interrupted["run_id"], runner.runner_id, error="合成网络失败")
     service = TaskService(settings, TaskRepository(settings), RunRepository(settings), customers, clock=lambda: now[0])
     service.action(tid, "pause")
     second = tasks.executions(tid)[0]

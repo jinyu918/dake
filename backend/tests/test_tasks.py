@@ -101,6 +101,10 @@ class MemoryRuns:
         self.items[rid].update(status="failed" if error else "succeeded", error=error,
             completed_windows=self.items[rid]["total_windows"])
 
+    def cancel_queued(self, rid):
+        if self.items[rid]["status"] == "queued":
+            self.items[rid].update(status="failed", error="已暂停，未开始的窗口不再执行")
+
 
 class Customers:
     def __init__(self):
@@ -240,14 +244,22 @@ def finish_customers(service, eid, failed_uid=None, error="合成网络失败"):
     service.tick(force=True)
 
 
-def test_timer_commits_one_window_before_fetching_next_and_pauses_at_boundary(service):
+def test_timer_keeps_customer_windows_ordered_and_pause_stops_the_next_one(service):
     task, eid = automatic(service)
     execution = sync_done(service, eid)
-    assert execution["state"]["end"] == "2026-11-16T10:15:00+08:00"
-    assert all(bound(r["request"]["end"]) <= bound("2026-11-16T10:15:00+08:00")
-               for r in service.runs.items.values())
+    assert execution["state"]["end"] == NOW.isoformat()
+    analysis = [run for run in service.runs.items.values() if run["request"]["mode"] != "customer_sync"]
+    assert analysis and all(run["request"]["start"] == "2026-11-16T10:00:00+08:00" for run in analysis)
     service.action(task["task_id"], "pause")
     finish_customers(service, eid)
+    for _ in range(6):
+        for run in list(service.runs.items.values()):
+            if run["status"] == "queued":
+                service.runs.finish(run["run_id"])
+        service.tick(force=True)
+        if service.tasks.execution(eid)["status"] not in ("queued", "running"):
+            break
+    assert service.tasks.execution(eid)["status"] == "succeeded"
     assert service.tasks.get(task["task_id"])["cursor_at"] == "2026-11-16T10:15:00+08:00"
     assert len(service.tasks.history) == 1
     service.action(task["task_id"], "resume")
@@ -256,37 +268,44 @@ def test_timer_commits_one_window_before_fetching_next_and_pauses_at_boundary(se
     assert latest["state"]["start"] == "2026-11-16T10:15:00+08:00"
 
 
-def test_manual_analyzes_first_window_before_next_source_window(service):
-    task = service.create(config(interval="15m"))
+def test_fast_customer_gets_the_next_window_while_another_is_still_running(service):
+    service.create(config(interval="15m"))
+    task = service.tasks.list()[0]
     service.action(task["task_id"], "run")
     eid = next(iter(service.tasks.history))
     execution = sync_done(service, eid)
     assert execution["stage"] == "analysis"
-    assert len([r for r in service.runs.items.values() if r["request"]["mode"] == "customer_sync"]) == 1
-    assert all(bound(r["request"]["end"]) <= bound("2026-11-16T10:15:00+08:00")
-               for r in service.runs.items.values())
-    finish_customers(service, eid)
-    assert service.tasks.execution(eid)["stage"] == "discovery"
-    assert service.tasks.execution(eid)["state"]["window_start"] == "2026-11-16T10:15:00+08:00"
+    first = [run for run in service.runs.items.values() if run["request"]["mode"] != "customer_sync"]
+    assert first and all(run["request"]["end"] == "2026-11-16T10:15:00+08:00" for run in first)
+    for run in list(service.runs.items.values()):
+        if run["request"]["mode"] == "customer_sync" and run["status"] == "queued":
+            service.runs.finish(run["run_id"])
+    service.tick(force=True)
+    children = {child["uid"]: child for child in service.tasks.execution(eid)["state"]["children"]}
+    service.runs.finish(children["555002"]["run_id"])
+    service.tick(force=True)
+    second = [run for run in service.runs.items.values()
+              if run["uid"] == "555002" and run["request"]["start"] == "2026-11-16T10:15:00+08:00"]
+    assert second
+    assert any(run["uid"] == "555001" and run["status"] == "queued" and run["request"]["start"] == "2026-11-16T10:00:00+08:00"
+               for run in service.runs.items.values())
 
 
-def test_failed_customer_resumes_earliest_unprocessed_window_while_others_advance(service):
+def test_failed_customer_stays_on_the_unfinished_window_while_others_advance(service):
     task, eid = automatic(service)
     sync_done(service, eid)
+    for run in list(service.runs.items.values()):
+        if run["request"]["mode"] == "customer_sync" and run["status"] == "queued":
+            service.runs.finish(run["run_id"])
+    service.tick(force=True)
     finish_customers(service, eid, failed_uid="555001")
-    assert service.tasks.execution(eid)["status"] == "partial"
-    next_id = service.tasks.executions(task["task_id"])[0]["execution_id"]
-    def pending(uid, *args):
-        at = "10:01" if uid == "555001" else "10:17"
-        return [SimpleNamespace(conversation_id="synthetic-group", sent_at=bound(f"2026-11-16T{at}:00+08:00"))]
-    service.runs.pending_messages = pending
-    next_execution = sync_done(service, next_id)
-    children = {c["uid"]: c for c in next_execution["state"]["children"]}
-    failed = service.runs.get(children["555001"]["run_id"])["request"]
-    other = service.runs.get(children["555002"]["run_id"])["request"]
-    assert failed["start"] == "2026-11-16T10:00:00+08:00"
-    assert failed["end"] == "2026-11-16T10:15:00+08:00"
-    assert other["start"] == "2026-11-16T10:15:00+08:00"
+    state = service.tasks.execution(eid)["state"]
+    children = {child["uid"]: child for child in state["children"]}
+    assert children["555001"]["status"] == "failed"
+    assert children["555001"]["cursor"] == "2026-11-16T10:00:00+08:00"
+    other = service.runs.get(children["555002"]["run_id"])
+    assert other["request"]["start"] == "2026-11-16T10:15:00+08:00"
+    assert task["task_id"]
 
 
 def test_late_message_uses_current_window_if_event_already_progressed(service):

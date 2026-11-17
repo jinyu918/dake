@@ -94,6 +94,7 @@ class ExecutionRecorder:
         self.files_started = False
         self.proposals = {}
         self.model_calls = 0
+        self.model_disposition = None
 
     def record(self, stage, status="completed", **payload):
         self.repository.stage(self.uid, self.stream, self.attempt_id, stage, status, deepcopy(payload))
@@ -118,6 +119,13 @@ class ExecutionRecorder:
                            request_changed=None if previous is None else previous != payload["request_digest"])
         self.record(stage, status="failed" if stage == "model_failed" else "started" if stage == "model_started" else "completed",
                     call_no=self.model_calls, **payload)
+        # 阶段没写上表示请求尚未发出；写上之后才把这次调用视为可能已经送出。
+        if stage == "model_started":
+            self.model_disposition = "maybe_sent"
+        elif stage == "model_completed":
+            self.model_disposition = "completed"
+        elif stage == "model_failed":
+            self.model_disposition = "maybe_sent" if payload.get("error_type") == "transport_error" else "known_failure"
 
     def extracted(self, candidates):
         self.proposals = {id(candidate): f"{self.attempt_id}:{self.model_calls}:{i}" for i, candidate in enumerate(candidates)}
@@ -186,52 +194,73 @@ def run_recorded(service, uid, window, *, observer=None, execution=None):
         attempt_id = repo.create(uid, service.stream, window, **identity,
             metadata=dict(version=1, policy=policy, policy_digest=fingerprint(policy)))
         recorder = ExecutionRecorder(repo, uid, service.stream, attempt_id, parent)
-        configure = getattr(service.provider, "configure_execution_observer", None)
-        files_saved = False
-        try:
-            recorder.record("execution", "started", retry_of=identity.get("retry_of"))
-            if parent and parent.get("receipt"):
-                recorder.record("recovery", source_attempt_id=parent["attempt_id"], mode="delivery_only")
-                result = restore_receipt(service, parent["receipt"])
-                result.attempt_id = attempt_id
-                result.recovered_from_attempt_id = parent["attempt_id"]
-                with service.store.transaction(uid):
-                    recorder.receipt(service.store, result, service.store.list_events(uid, service.stream), [],
-                                     kind="delivery_recovery", parent=parent["attempt_id"], source_receipt=parent["receipt"])
-                recorder.committed = True
-                repo.confirm_commit(uid, service.stream, attempt_id)
-                recorder.files_started = True
-                # 原路径可能已有后续同窗口快照；恢复旧执行不能覆盖后来展示或倒退水位。
-                if not service.state.snapshot_path(uid, service.stream, window).exists():
-                    service.state.snapshot(result)
-                watermark = service.state.read(uid, service.stream)
-                if not watermark.get("next_start") or parse_time(watermark["next_start"]) < parse_time(result.watermark["next_start"]):
-                    service.state.advance(uid, service.stream, result.watermark)
-            else:
-                if configure is not None:
-                    configure(recorder.model)
-                result = service._run_window(uid, window, observer=observer, recorder=recorder)
-            files_saved = True
-            repo.delivery(uid, service.stream, attempt_id, "files", "restored_or_kept_existing" if parent and parent.get("receipt") else "saved")
-            return result
-        except BaseException as error:
-            if recorder.committed:
-                if recorder.files_started and not files_saved:
-                    try:
-                        repo.delivery(uid, service.stream, attempt_id, "files", "failed")
-                    except Exception:
-                        pass
-                detail = ("提交确认记录未保存，须先核实" if not recorder.files_started else
-                          "展示状态记录未确认" if files_saved else "展示文件保存失败")
-                raise DeliveryError(f"执行 {attempt_id} 的业务已提交，{detail}；请恢复展示，不要重新分析") from None
-            unknown = isinstance(error, TransactionOutcomeUnknown)
-            try:
-                repo.failure(uid, service.stream, attempt_id, unknown=unknown, error_type=type(error).__name__)
-            except Exception:
-                raise AttemptPendingVerification(f"执行 {attempt_id} 的结束记录未保存，须核实后再处理") from None
-            if unknown:
-                raise AttemptPendingVerification(f"执行 {attempt_id} 的提交结果待核实，禁止自动重跑") from None
-            raise
-        finally:
+
+        def work():
+            return _work_recorded(service, uid, window, observer, repo, recorder, parent)
+
+        if getattr(service, "gate", None) is None:
+            return work()
+    # 有执行权租约时，模型调用不能占着客户锁；提交时再进短事务核对代次。
+    return work()
+
+
+def _work_recorded(service, uid, window, observer, repo, recorder, parent):
+    """执行或按收据恢复。调用方决定模型期间是否持有客户锁。"""
+    attempt_id = recorder.attempt_id
+    configure = getattr(service.provider, "configure_execution_observer", None)
+    files_saved = False
+    try:
+        recorder.record("execution", "started", retry_of=None if parent is None else parent["attempt_id"])
+        if parent and parent.get("receipt"):
+            recorder.record("recovery", source_attempt_id=parent["attempt_id"], mode="delivery_only")
+            result = restore_receipt(service, parent["receipt"])
+            result.attempt_id = attempt_id
+            result.recovered_from_attempt_id = parent["attempt_id"]
+            with service.store.transaction(uid):
+                recorder.receipt(service.store, result, service.store.list_events(uid, service.stream), [],
+                                 kind="delivery_recovery", parent=parent["attempt_id"], source_receipt=parent["receipt"])
+            recorder.committed = True
+            repo.confirm_commit(uid, service.stream, attempt_id)
+            recorder.files_started = True
+            # 原路径可能已有后续同窗口快照；恢复旧执行不能覆盖后来展示或倒退水位。
+            if not service.state.snapshot_path(uid, service.stream, window).exists():
+                service.state.snapshot(result)
+            watermark = service.state.read(uid, service.stream)
+            if not watermark.get("next_start") or parse_time(watermark["next_start"]) < parse_time(result.watermark["next_start"]):
+                service.state.advance(uid, service.stream, result.watermark)
+        else:
             if configure is not None:
-                configure(None)
+                configure(recorder.model)
+            result = service._run_window(uid, window, observer=observer, recorder=recorder)
+        files_saved = True
+        repo.delivery(uid, service.stream, attempt_id, "files", "restored_or_kept_existing" if parent and parent.get("receipt") else "saved")
+        return result
+    except BaseException as error:
+        if recorder.committed:
+            if recorder.files_started and not files_saved:
+                try:
+                    repo.delivery(uid, service.stream, attempt_id, "files", "failed")
+                except Exception:
+                    pass
+            detail = ("提交确认记录未保存，须先核实" if not recorder.files_started else
+                      "展示状态记录未确认" if files_saved else "展示文件保存失败")
+            raise DeliveryError(f"执行 {attempt_id} 的业务已提交，{detail}；请恢复展示，不要重新分析") from None
+        unknown = isinstance(error, TransactionOutcomeUnknown)
+        model_unknown = (not unknown) and recorder.model_disposition == "maybe_sent"
+        try:
+            repo.failure(uid, service.stream, attempt_id, unknown=unknown, model_unknown=model_unknown,
+                         error_type=type(error).__name__)
+        except Exception:
+            raise AttemptPendingVerification(f"执行 {attempt_id} 的结束记录未保存，须核实后再处理") from None
+        gate = getattr(service, "gate", None)
+        if gate is not None and (unknown or model_unknown):
+            gate.block("commit_unknown" if unknown else "model_unknown",
+                       "提交结果未核实，禁止换流重跑" if unknown else "模型请求可能已发出但结果未知，禁止自动重发")
+        if unknown:
+            raise AttemptPendingVerification(f"执行 {attempt_id} 的提交结果待核实，禁止自动重跑") from None
+        if model_unknown:
+            raise AttemptPendingVerification(f"执行 {attempt_id} 的模型结果未知，须核实，禁止自动重跑") from None
+        raise
+    finally:
+        if configure is not None:
+            configure(None)

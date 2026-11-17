@@ -38,6 +38,10 @@ def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=N
     task_service = TaskService(settings, tasks, runs, customers)
     if isinstance(worker, RunRunner):
         worker.coordinator = task_service
+        from ..repositories.attempts import AttemptRepository
+        from ..repositories.pipeline import PipelineRepository
+        worker.pipeline = PipelineRepository(settings, store_factory)
+        worker.attempts = AttemptRepository(settings, store_factory)
 
     @asynccontextmanager
     async def lifespan(application):

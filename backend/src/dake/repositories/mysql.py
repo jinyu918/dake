@@ -68,6 +68,8 @@ class MySQLStore:
         self._transaction_uid: str | None = None
         self._customer_uid: str | None = None
         self._closed = False
+        self.suppress_revision = False
+        self._pipeline_table: bool | None = None
         try:
             self._conn = pymysql.connect(
                 host=host,
@@ -165,6 +167,35 @@ class MySQLStore:
                 self.close()
 
     @contextmanager
+    def metadata_transaction(self) -> Iterator["MySQLStore"]:
+        """调度和执行权使用的短事务，不持有客户命名锁，也不能写消息正文。"""
+        if self._transaction_uid is not None:
+            raise StorageError("不允许嵌套数据库事务")
+        self._transaction_uid = "metadata"
+        try:
+            self._conn.begin()
+            try:
+                yield self
+            except BaseException:
+                try:
+                    self._conn.rollback()
+                except BaseException:
+                    try:
+                        self.close()
+                    finally:
+                        raise TransactionOutcomeUnknown("事务回滚未确认，须核实执行收据，禁止自动重跑") from None
+                raise
+            try:
+                self._conn.commit()
+            except BaseException:
+                try:
+                    self.close()
+                finally:
+                    raise TransactionOutcomeUnknown("事务提交结果不明，须核实执行收据，禁止自动重跑") from None
+        finally:
+            self._transaction_uid = None
+
+    @contextmanager
     def transaction(self, uid: str) -> Iterator["MySQLStore"]:
         """业务写入原子提交；提交响应不明时关闭原连接并明确阻止自动重试。"""
         if self._transaction_uid is not None:
@@ -174,6 +205,8 @@ class MySQLStore:
             try:
                 self._conn.begin()
                 try:
+                    # 先锁该客户的执行权行，再锁消息，避免与提交事务交叉等待。
+                    self._lock_pipeline(uid)
                     yield self
                 except BaseException:
                     try:
@@ -206,14 +239,16 @@ class MySQLStore:
         for message in messages:
             self._require_transaction(message.uid)
             rows, _ = self._execute(
-                "SELECT uid, digest FROM messages WHERE source=%s AND message_id=%s FOR UPDATE",
+                "SELECT uid, digest, sent_at FROM messages WHERE source=%s AND message_id=%s FOR UPDATE",
                 (message.source, message.message_id),
             )
+            previous_sent = None
             if rows:
                 if rows[0]["uid"] != message.uid:
                     raise StorageError("同一消息 ID 已属于其他客户，拒绝覆盖")
                 if rows[0]["digest"] == message.digest:
                     continue
+                previous_sent = rows[0].get("sent_at")
                 self._execute(
                     "UPDATE messages SET sent_at=%s, digest=%s, payload=%s WHERE source=%s AND message_id=%s AND uid=%s",
                     (
@@ -230,7 +265,39 @@ class MySQLStore:
                     ),
                 )
             changed += 1
+            if not self.suppress_revision:
+                self._bump_input_revision(message, previous_sent)
         return changed
+
+    def _pipeline_ready(self) -> bool:
+        """流水表未迁移时不改原有写入；结果只在本连接缓存。"""
+        if not hasattr(self, "_pipeline_table"):
+            return False
+        if self._pipeline_table is None:
+            rows, _ = self._execute("SELECT 1 AS present FROM information_schema.tables "
+                "WHERE table_schema=DATABASE() AND table_name='uid_pipeline_state'")
+            self._pipeline_table = bool(rows)
+        return self._pipeline_table
+
+    def _lock_pipeline(self, uid: str) -> None:
+        """有执行权行时先锁定它；没有行表示该客户尚未进入独立推进。"""
+        if not uid or uid.startswith("task:") or not self._pipeline_ready():
+            return
+        self._execute("SELECT uid FROM uid_pipeline_state WHERE uid=%s FOR UPDATE", (uid,))
+
+    def _bump_input_revision(self, message: Message, previous_sent) -> None:
+        """活动窗口结束前的新消息或时间修订使已冻结输入失效，不在模型事务外另行判断。"""
+        if not self._pipeline_ready():
+            return
+        moments = [message.sent_at]
+        if isinstance(previous_sent, datetime):
+            if previous_sent.tzinfo is None:
+                previous_sent = previous_sent.replace(tzinfo=TZ)
+            moments.append(previous_sent)
+        for moment in moments:
+            self._execute("""UPDATE uid_pipeline_state SET input_revision=input_revision+1, updated_at=%s
+                WHERE uid=%s AND active_window_end IS NOT NULL AND %s < active_window_end""",
+                (datetime.now(TZ).replace(tzinfo=None), message.uid, _sql_time(moment)))
 
     @staticmethod
     def _bounds(start: datetime, end: datetime) -> tuple[datetime, datetime]:

@@ -116,10 +116,11 @@ class AttemptRepository:
                     known_ids=list(known), related_ids=list(related))
 
     def unresolved(self, uid, stream):
-        """调用方持有客户锁；历史运行未明确结束时禁止自行推断回滚。"""
+        """同一客户的提交未知或模型未知不能靠更换分析流绕过。"""
         with self.connection() as store:
-            rows, _ = store._execute("SELECT attempt_id FROM processing_attempts WHERE uid=%s AND stream=%s "
-                "AND outcome IN ('running','commit_unknown') LIMIT 1", (uid, stream))
+            rows, _ = store._execute("SELECT attempt_id FROM processing_attempts WHERE uid=%s AND ("
+                "(stream=%s AND outcome='running') OR outcome IN ('commit_unknown','model_unknown')) LIMIT 1",
+                (uid, stream))
         return rows[0]["attempt_id"] if rows else None
 
     def for_run_window(self, uid, stream, run_id, window_index, window):
@@ -170,14 +171,25 @@ class AttemptRepository:
         if changed != 1:
             raise DeliveryError("业务已提交，但提交确认记录未保存，须核实后恢复展示")
 
-    def failure(self, uid, stream, attempt_id, *, unknown, error_type):
-        """保留收据；响应丢失仍待显式核实，不能自动把重跑当成核实。"""
+    def failure(self, uid, stream, attempt_id, *, unknown, error_type, model_unknown=False):
+        """保留收据。提交不明和模型结果不明分开记录，普通失败不升格为提交不明。"""
+        if unknown and model_unknown:
+            raise AttemptError("同一次失败不能同时是提交不明和模型不明")
+        outcome = "commit_unknown" if unknown else "model_unknown" if model_unknown else "not_committed"
+        guard = ("outcome IN ('running','commit_unknown','committed')" if unknown else
+                 "receipt IS NULL AND outcome='running'")
         with self.connection() as store:
             store._execute("UPDATE processing_attempts SET outcome=%s,error_type=%s,finished_at=%s "
-                "WHERE uid=%s AND stream=%s AND attempt_id=%s AND " +
-                ("outcome IN ('running','commit_unknown','committed')" if unknown else
-                 "receipt IS NULL AND outcome IN ('running','commit_unknown')"),
-                ("commit_unknown" if unknown else "not_committed", error_type, now(), uid, stream, attempt_id))
+                "WHERE uid=%s AND stream=%s AND attempt_id=%s AND " + guard,
+                (outcome, error_type, now(), uid, stream, attempt_id))
+            if model_unknown or unknown:
+                try:
+                    store._execute("UPDATE processing_attempts SET model_state=%s, error_code=%s "
+                        "WHERE uid=%s AND stream=%s AND attempt_id=%s",
+                        ("unknown" if model_unknown else "commit_unknown", outcome, uid, stream, attempt_id))
+                except StorageError as error:
+                    if "错误码 1054" not in str(error):
+                        raise
 
     def verified(self, uid, stream, attempt_id, *, committed):
         """在客户锁内以收据核实，并持久保存实际核实结果和时间。"""

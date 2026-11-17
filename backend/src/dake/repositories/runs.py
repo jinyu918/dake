@@ -86,6 +86,23 @@ class RunRepository:
                 KEY ix_runs_status_created (status,created_at),
                 KEY ix_runs_uid_created (uid,created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin""")
+            from .pipeline import apply_statements
+            from ..config import PROJECT_ROOT
+            apply_statements(store, PROJECT_ROOT / "backend/migrations/005_customer_pipelines.sql")
+            self._seed_runtime_slots(store)
+
+    def _seed_runtime_slots(self, store):
+        """按配置补齐额度行；不抢走仍在有效租约中的名额。"""
+        slots = getattr(self.settings, "analysis_slots", 2)
+        reserved = getattr(self.settings, "live_reserved", 1)
+        for index in range(slots):
+            role = "live" if index < reserved else "general"
+            store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
+                VALUES ('analysis',%s,%s,0) ON DUPLICATE KEY UPDATE
+                held_reason=IF(owner IS NULL OR lease_until<NOW(6), VALUES(held_reason), held_reason)""",
+                (index, role))
+        store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
+            VALUES ('fetch',0,'general',0) ON DUPLICATE KEY UPDATE slot=slot""")
 
     @staticmethod
     def _record(row, *, include_cycles=True, internal=False):
@@ -231,13 +248,75 @@ class RunRepository:
         return dict(items=[by_id[rid] for rid in ids], total=len(heads))
 
     def recover_interrupted(self):
-        """仅由拿到全局执行锁的实例调用；保留已完成周期，明确中断状态。"""
+        """重启不再把 running 批量改成失败；过期租约由核实流程逐项处理。"""
+        return None
+
+    def claim_source(self, runner_id: str) -> dict | None:
+        """领取一个全局抓取窗口；不按客户重复取数，也不占用分析名额。"""
+        return self._claim(runner_id, source=True)
+
+    def claim_fair(self, runner_id: str) -> dict | None:
+        """空闲分析名额领取可运行客户的最早窗口；实时预留名额不借给历史追赶。"""
+        return self._claim(runner_id, source=False)
+
+    def _claim(self, runner_id: str, *, source: bool) -> dict | None:
+        lease = int(getattr(self.settings, "lease_seconds", 30))
+        slots = int(getattr(self.settings, "analysis_slots", 2))
         with self.connection() as store:
-            store._execute("""UPDATE processing_runs SET status='failed',finished_at=%s,
-                error=%s WHERE status='running'""", (_now(), "服务中断，已完成周期已保留；可重新提交相同范围继续验证"))
+            with store.metadata_transaction():
+                resource = "fetch" if source else "analysis"
+                limit = 1 if source else slots
+                free, _ = store._execute("""SELECT slot, held_reason FROM runtime_limits
+                    WHERE resource=%s AND slot<%s AND (owner IS NULL OR lease_until<NOW(6))
+                    ORDER BY slot FOR UPDATE SKIP LOCKED""", (resource, limit))
+                if not free:
+                    return None
+                if source:
+                    rows, _ = store._execute("""SELECT run_id, uid, 'live' AS phase FROM processing_runs
+                        WHERE status='queued' AND mode='customer_sync' ORDER BY created_at, run_id LIMIT 8""")
+                else:
+                    rows, _ = store._execute("""SELECT r.run_id, r.uid,
+                        COALESCE(JSON_UNQUOTE(JSON_EXTRACT(r.request,'$.phase')),'live') AS phase
+                        FROM processing_runs r
+                        LEFT JOIN uid_pipeline_state p ON p.uid=r.uid
+                        WHERE r.status='queued' AND r.mode<>'customer_sync'
+                        AND (p.uid IS NULL OR (p.block_reason IS NULL AND p.owner IS NULL))
+                        AND NOT EXISTS (SELECT 1 FROM processing_runs a WHERE a.uid=r.uid AND a.status='running'
+                            AND a.mode<>'customer_sync')
+                        ORDER BY p.last_served_at IS NULL DESC, p.last_served_at, r.created_at, r.run_id LIMIT 32""")
+                chosen = None
+                slot = None
+                for row in rows:
+                    phase = row.get("phase") or "live"
+                    slot = next((item for item in free if source or item["held_reason"] != "live" or phase == "live"), None)
+                    if slot is None:
+                        continue
+                    _, changed = store._execute("""UPDATE processing_runs SET status='running', runner_id=%s, started_at=%s
+                        WHERE run_id=%s AND status='queued'""", (runner_id, _now(), row["run_id"]))
+                    if changed == 1:
+                        chosen = row["run_id"]
+                        break
+                if chosen is None:
+                    return None
+                store._execute("""UPDATE runtime_limits SET owner=%s, epoch=epoch+1,
+                    lease_until=DATE_ADD(NOW(6), INTERVAL %s SECOND)
+                    WHERE resource=%s AND slot=%s""", (runner_id, lease, resource, slot["slot"]))
+                held = slot["slot"]
+        claimed = self.get(chosen, internal=True)
+        if claimed is not None:
+            claimed["_capacity_slot"] = held
+            claimed["_capacity_source"] = source
+        return claimed
+
+    def release_slot(self, runner_id: str, *, source: bool, slot: int):
+        """只归还本次领取的名额，避免同一进程的其他客户被一起放开。"""
+        resource = "fetch" if source else "analysis"
+        with self.connection() as store:
+            store._execute("""UPDATE runtime_limits SET owner=NULL, lease_until=NULL
+                WHERE resource=%s AND slot=%s AND owner=%s""", (resource, slot, runner_id))
 
     def claim_next(self, runner_id: str) -> dict | None:
-        """全局单执行者领取最早任务，其他 API 实例只能提交或查询。"""
+        """兼容单线程测试的最早任务领取。生产分析循环使用 claim_fair。"""
         with self.connection() as store:
             rows, _ = store._execute("SELECT run_id FROM processing_runs WHERE status='queued' ORDER BY created_at,run_id LIMIT 1")
             if not rows:
@@ -291,6 +370,12 @@ class RunRepository:
                 (_encoded(cycles), len(cycles), run_id, runner_id, start_index))
         if not changed:
             raise StorageError("空窗口进度或执行权已变化，停止重复推进")
+
+    def cancel_queued(self, run_id: str) -> None:
+        """暂停时放弃尚未开始的抓取，不把它记成来源失败。"""
+        with self.connection() as store:
+            store._execute("""UPDATE processing_runs SET status='failed',finished_at=%s,error=%s
+                WHERE run_id=%s AND status='queued'""", (_now(), "已暂停，未开始的窗口不再执行", run_id))
 
     def finish(self, run_id: str, runner_id: str, *, error: str | None = None):
         """成功或失败都写明确终态；错误必须由调用方提供固定的脱敏文本。"""

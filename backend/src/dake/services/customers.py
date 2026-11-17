@@ -101,7 +101,89 @@ class CustomerSyncService:
         check()
         if self.task_options:
             self.repository.ingest_discovered(raw, window, groups)
+        isolated = self._remember_unattributed(raw, window, groups)
+        self._note_deletions(raw, window)
         check()
-        return self.repository.save_window(run_id, runner_id, window, groups, pending_profiles,
+        cycle = self.repository.save_window(run_id, runner_id, window, groups, pending_profiles,
             {"messages": count, "groups": len(groups), "customers": len({g["uid"] for g in groups if g["uid"]}),
-             "profile_errors": profile_errors, "lookup_errors": lookup_errors})
+             "profile_errors": profile_errors, "lookup_errors": lookup_errors, "isolated": isolated})
+        cycle["isolated"] = isolated
+        return cycle
+
+    def _remember_unattributed(self, raw, window, groups):
+        """无法归属的记录只保存身份，已确认客户继续；表不存在时不假装已经隔离。"""
+        if not hasattr(self.repository, "connection"):
+            return 0
+        from datetime import datetime
+        from hashlib import sha256
+        from uuid import uuid4
+        from ..repositories.mysql import StorageError, _sql_time
+        from ..repositories.runs import _encoded
+        confirmed = {group["group_id"] for group in groups if group.get("status") == "confirmed" and group.get("uid")}
+        rows = []
+        for group in raw.get("groups") or []:
+            gid = str(group.get("group_number") or "")
+            if not gid or gid in confirmed:
+                continue
+            for record in group.get("records") or []:
+                try:
+                    moment = datetime.strptime(record.get("send_time"), "%Y-%m-%d %H:%M:%S").replace(tzinfo=TZ)
+                except (TypeError, ValueError):
+                    continue
+                message_id = str(record.get("id") or "")
+                if message_id and window.start <= moment < window.end:
+                    rows.append((gid, message_id, moment))
+        if not rows:
+            return 0
+        try:
+            with self.repository.connection() as store:
+                for gid, message_id, moment in rows:
+                    store._execute("""INSERT INTO isolated_records
+                        (isolation_id,uid,source,message_id,digest,send_time,kind,reason,window_start,window_end,payload,created_at)
+                        VALUES (%s,NULL,'official_chat',%s,%s,%s,'unattributed',%s,%s,%s,%s,NOW(6))
+                        ON DUPLICATE KEY UPDATE reason=VALUES(reason)""",
+                        (str(uuid4()), message_id, sha256(message_id.encode()).hexdigest(), _sql_time(moment),
+                         "客户归属未确认，已隔离且不计入分析覆盖", _sql_time(window.start), _sql_time(window.end),
+                         _encoded({"conversation_id": gid})))
+        except StorageError as error:
+            if "1146" not in str(error):
+                raise
+            return 0
+        return len(rows)
+
+    def _note_deletions(self, raw, window):
+        """完整响应里消失的旧消息只记隔离，不删除原文，也不改事件。"""
+        if not hasattr(self.repository, "connection"):
+            return
+        from datetime import datetime
+        from hashlib import sha256
+        from uuid import uuid4
+        from ..repositories.mysql import StorageError, _sql_time
+        seen = set()
+        for group in raw.get("groups") or []:
+            for record in group.get("records") or []:
+                try:
+                    moment = datetime.strptime(record.get("send_time"), "%Y-%m-%d %H:%M:%S").replace(tzinfo=TZ)
+                except (TypeError, ValueError):
+                    continue
+                if window.start <= moment < window.end and record.get("id"):
+                    seen.add(str(record["id"]))
+        try:
+            with self.repository.connection() as store:
+                stored, _ = store._execute("""SELECT message_id FROM messages
+                    WHERE source='official_chat' AND sent_at>=%s AND sent_at<%s""",
+                    (_sql_time(window.start), _sql_time(window.end)))
+                for row in stored:
+                    message_id = row["message_id"]
+                    if message_id in seen:
+                        continue
+                    digest = sha256(("deleted:" + message_id).encode()).hexdigest()
+                    store._execute("""INSERT INTO isolated_records
+                        (isolation_id,uid,source,message_id,digest,send_time,kind,reason,window_start,window_end,payload,created_at)
+                        VALUES (%s,NULL,'official_chat',%s,%s,NULL,'source_deletion',%s,%s,%s,JSON_OBJECT(),NOW(6))
+                        ON DUPLICATE KEY UPDATE reason=VALUES(reason)""",
+                        (str(uuid4()), message_id, digest, "来源未再返回该消息，不删除本地记录也不改写事件",
+                         _sql_time(window.start), _sql_time(window.end)))
+        except StorageError as error:
+            if "1146" not in str(error):
+                raise
