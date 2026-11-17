@@ -120,7 +120,8 @@ def test_openapi_has_named_operations_and_typed_models(api):
     client, _, _, _ = api
     schema = client.get("/openapi.json").json()
     operations = {item["operationId"] for path in schema["paths"].values() for item in path.values()}
-    assert operations == {"health", "get_config", "list_events", "get_event", "get_event_changes", "create_run", "list_runs", "get_run"}
+    assert operations == {"health", "get_config", "list_events", "get_event", "get_event_changes", "create_run", "list_runs", "get_run",
+                          "submit_field_decision", "get_field_decision", "correct_same_round", "get_same_round_correction"}
     assert {"ConfigResponse", "EventResponse", "EventRevision", "EvidenceResponse", "RunResponse", "CycleResponse"} <= set(schema["components"]["schemas"])
     assert "synthetic-secret-never-return" not in client.get("/api/v1/config").text
 
@@ -129,7 +130,8 @@ def test_openapi_response_defaults_are_required_but_request_defaults_remain_opti
     client, _, _, _ = api
     schema = client.get("/openapi.json").json()
     models = schema["components"]["schemas"]
-    assert {"assignees", "evidence", "attributes", "extensions", "updated_by", "review_flag", "closed_at"} <= set(models["EventResponse"]["required"])
+    assert {"assignees", "evidence", "attributes", "typed_attributes", "types", "type_evidence",
+            "classification_evidence_status", "extensions", "updated_by", "review_flag", "closed_at"} <= set(models["EventResponse"]["required"])
     assert {"created", "updated", "review", "events", "processed", "ingested", "recovered_from_history", "counts_complete"} <= set(models["CycleResponse"]["required"])
     assert "cycles" in models["RunResponse"]["required"]
     request_schema = schema["paths"]["/api/v1/runs"]["post"]["requestBody"]["content"]["application/json"]["schema"]

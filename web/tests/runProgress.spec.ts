@@ -1,4 +1,5 @@
 import { expect, type Page, test } from '@playwright/test';
+import { fieldDefaults } from './fieldDefaults';
 
 const uid = '555001';
 const stream = 'synthetic-progress-a';
@@ -47,10 +48,17 @@ function task(id: string, status: API.RunResponse['status']): API.RunResponse {
 
 function savedEvent(id: string): API.EventResponse {
   return {
+    ...fieldDefaults,
     event_id: id,
     uid,
     stream,
     type: '排障',
+    types: ['排障'],
+    type_evidence: {},
+    removed_types: {},
+    classification_evidence_status: '未记录',
+    classification_status: '已分类',
+    other_reason: null,
     topic_key: '虚构报告',
     start_time: moment,
     end_time: moment,
@@ -61,6 +69,7 @@ function savedEvent(id: string): API.EventResponse {
     evidence: [],
     assignees: [],
     attributes: {},
+    typed_attributes: {},
     extensions: {},
     review_flag: null,
     closed_at: null,
@@ -99,6 +108,7 @@ async function mockProgress(page: Page) {
     state.reads.push(url);
     if (url.pathname === '/api/v1/config') {
       const config: API.ConfigResponse = {
+        field_targets: [],
         uid,
         start: '2038-06-01',
         end: '2038-06-02',

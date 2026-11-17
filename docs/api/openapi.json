@@ -67,6 +67,396 @@
         }
       }
     },
+    "/api/v1/events/{event_id}/same-round-corrections": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Correct Same Round",
+        "operationId": "correct_same_round",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Event Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SameRoundCorrectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityCorrectionOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/events/{event_id}/same-round-corrections/{operation_id}": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Get Same Round Correction",
+        "operationId": "get_same_round_correction",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Event Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Stream"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/IdentityCorrectionOperation"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CorrectionNotCommitted"
+                    }
+                  ],
+                  "title": "Response Get Same Round Correction"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/events/{event_id}/field-decisions": {
+      "post": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Submit Field Decision",
+        "operationId": "submit_field_decision",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Event Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FieldDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/events/{event_id}/field-decisions/{operation_id}": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "Get Field Decision",
+        "operationId": "get_field_decision",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "title": "Event Id"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Operation Id"
+            }
+          },
+          {
+            "name": "uid",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "title": "Stream"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/config": {
       "get": {
         "tags": [
@@ -780,6 +1170,83 @@
   },
   "components": {
     "schemas": {
+      "BusinessRelation": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "based_on",
+              "caused_by"
+            ],
+            "title": "Kind"
+          },
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "pending",
+              "retracted"
+            ],
+            "title": "Review Status"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "retraction_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/ChangeEvidence"
+            },
+            "type": "array",
+            "title": "Retraction Evidence"
+          },
+          "origin_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Event Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "event_id",
+          "reason",
+          "evidence",
+          "review_status",
+          "review_reason",
+          "retraction_evidence",
+          "origin_event_id"
+        ],
+        "title": "BusinessRelation"
+      },
       "ChangeEvidence": {
         "properties": {
           "source": {
@@ -805,6 +1272,18 @@
           "quote": {
             "type": "string",
             "title": "Quote"
+          },
+          "evidence_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "superseded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Status"
           }
         },
         "type": "object",
@@ -814,13 +1293,21 @@
           "digest",
           "conversation_id",
           "send_time",
-          "quote"
+          "quote",
+          "evidence_status"
         ],
         "title": "ChangeEvidence",
         "description": "变化当时保存的证据定位和引文，不拿后来编辑的正文替换。"
       },
       "ConfigResponse": {
         "properties": {
+          "field_targets": {
+            "items": {
+              "$ref": "#/components/schemas/FieldTarget"
+            },
+            "type": "array",
+            "title": "Field Targets"
+          },
           "uid": {
             "type": "string",
             "title": "Uid"
@@ -879,6 +1366,7 @@
         },
         "type": "object",
         "required": [
+          "field_targets",
           "uid",
           "start",
           "end",
@@ -920,6 +1408,18 @@
             "type": "string",
             "title": "Quote"
           },
+          "evidence_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "superseded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Status"
+          },
           "sender_id": {
             "type": "string",
             "title": "Sender Id"
@@ -933,6 +1433,7 @@
           "conversation_id",
           "send_time",
           "quote",
+          "evidence_status",
           "sender_id"
         ],
         "title": "ContinuityEvidence",
@@ -967,6 +1468,105 @@
         "title": "ConversationRef",
         "description": "事件覆盖到的群聊，供列表和筛选展示，不改变事件身份。"
       },
+      "CorrectionNotCommitted": {
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "const": "not_committed",
+            "title": "Outcome"
+          },
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "outcome",
+          "operation_id"
+        ],
+        "title": "CorrectionNotCommitted"
+      },
+      "CorrectionProof": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Source"
+          },
+          "message_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Message Id"
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Digest"
+          },
+          "send_time": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Send Time"
+          },
+          "quote": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Quote"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "message_id",
+          "digest",
+          "send_time",
+          "quote"
+        ],
+        "title": "CorrectionProof"
+      },
+      "CorrectionResolution": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/FieldTarget"
+          },
+          "adopt": {
+            "items": {
+              "$ref": "#/components/schemas/FactOrigin"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Adopt"
+          },
+          "acknowledged_locks": {
+            "items": {
+              "$ref": "#/components/schemas/FactOrigin"
+            },
+            "type": "array",
+            "title": "Acknowledged Locks"
+          },
+          "locked": {
+            "type": "boolean",
+            "title": "Locked"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "adopt",
+          "locked",
+          "reason"
+        ],
+        "title": "CorrectionResolution"
+      },
       "CustomerRecoveryEvidence": {
         "properties": {
           "source": {
@@ -993,13 +1593,28 @@
             "type": "string",
             "title": "Quote"
           },
+          "evidence_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "superseded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Status"
+          },
           "sender_id": {
             "type": "string",
             "title": "Sender Id"
           },
           "sender_role": {
             "type": "string",
-            "const": "customer",
+            "enum": [
+              "customer",
+              "internal"
+            ],
             "title": "Sender Role"
           }
         },
@@ -1011,11 +1626,12 @@
           "conversation_id",
           "send_time",
           "quote",
+          "evidence_status",
           "sender_id",
           "sender_role"
         ],
         "title": "CustomerRecoveryEvidence",
-        "description": "已确认客户账号的明确反馈，不采用展示身份回退。"
+        "description": "已确认客户或支持账号的直接反馈，不采用展示身份回退。"
       },
       "CustomerResponse": {
         "properties": {
@@ -1687,6 +2303,47 @@
             "type": "string",
             "title": "Type"
           },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "type_evidence": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Type Evidence"
+          },
+          "removed_types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Removed Types"
+          },
+          "classification_evidence_status": {
+            "type": "string",
+            "title": "Classification Evidence Status",
+            "default": "未记录"
+          },
+          "classification_status": {
+            "type": "string",
+            "title": "Classification Status",
+            "default": "已分类"
+          },
+          "other_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "topic_key": {
             "anyOf": [
               {
@@ -1743,6 +2400,57 @@
             "type": "object",
             "title": "Attributes"
           },
+          "typed_attributes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Typed Attributes"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 0
+          },
+          "field_states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldState"
+            },
+            "type": "object",
+            "title": "Field States"
+          },
+          "field_issues": {
+            "items": {
+              "$ref": "#/components/schemas/FieldIssue"
+            },
+            "type": "array",
+            "title": "Field Issues"
+          },
+          "manual_operations": {
+            "items": {
+              "$ref": "#/components/schemas/FieldOperation"
+            },
+            "type": "array",
+            "title": "Manual Operations"
+          },
+          "corrected_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected Into"
+          },
+          "identity_corrections": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCorrectionOperation"
+            },
+            "type": "array",
+            "title": "Identity Corrections"
+          },
           "extensions": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
@@ -1792,6 +2500,13 @@
               }
             ]
           },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessRelation"
+            },
+            "type": "array",
+            "title": "Relations"
+          },
           "schema_version": {
             "type": "integer",
             "title": "Schema Version",
@@ -1825,6 +2540,12 @@
           "uid",
           "stream",
           "type",
+          "types",
+          "type_evidence",
+          "removed_types",
+          "classification_evidence_status",
+          "classification_status",
+          "other_reason",
           "topic_key",
           "start_time",
           "end_time",
@@ -1835,11 +2556,19 @@
           "assignees",
           "evidence",
           "attributes",
+          "typed_attributes",
+          "version",
+          "field_states",
+          "field_issues",
+          "manual_operations",
+          "corrected_into",
+          "identity_corrections",
           "extensions",
           "review_flag",
           "closed_at",
           "recovery",
           "recurrence_of",
+          "relations",
           "schema_version",
           "updated_by",
           "conversations",
@@ -1915,7 +2644,9 @@
                   "progress",
                   "confirmation",
                   "correction",
-                  "evidence_only"
+                  "evidence_only",
+                  "classification",
+                  "manual"
                 ]
               },
               {
@@ -1923,6 +2654,29 @@
               }
             ],
             "title": "Change Kind"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "manual"
+            ],
+            "title": "Source",
+            "default": "automatic"
+          },
+          "manual_operation": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Operation"
           },
           "change_summary": {
             "anyOf": [
@@ -1982,6 +2736,8 @@
           "revision_no",
           "recorded_at",
           "change_kind",
+          "source",
+          "manual_operation",
           "change_summary",
           "summary_changed",
           "changed_fields",
@@ -2008,6 +2764,47 @@
           "type": {
             "type": "string",
             "title": "Type"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "type_evidence": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Type Evidence"
+          },
+          "removed_types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Removed Types"
+          },
+          "classification_evidence_status": {
+            "type": "string",
+            "title": "Classification Evidence Status",
+            "default": "未记录"
+          },
+          "classification_status": {
+            "type": "string",
+            "title": "Classification Status",
+            "default": "已分类"
+          },
+          "other_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "topic_key": {
             "anyOf": [
@@ -2065,6 +2862,57 @@
             "type": "object",
             "title": "Attributes"
           },
+          "typed_attributes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object",
+            "title": "Typed Attributes"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "default": 0
+          },
+          "field_states": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FieldState"
+            },
+            "type": "object",
+            "title": "Field States"
+          },
+          "field_issues": {
+            "items": {
+              "$ref": "#/components/schemas/FieldIssue"
+            },
+            "type": "array",
+            "title": "Field Issues"
+          },
+          "manual_operations": {
+            "items": {
+              "$ref": "#/components/schemas/FieldOperation"
+            },
+            "type": "array",
+            "title": "Manual Operations"
+          },
+          "corrected_into": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected Into"
+          },
+          "identity_corrections": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCorrectionOperation"
+            },
+            "type": "array",
+            "title": "Identity Corrections"
+          },
           "extensions": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
@@ -2114,6 +2962,13 @@
               }
             ]
           },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/BusinessRelation"
+            },
+            "type": "array",
+            "title": "Relations"
+          },
           "schema_version": {
             "type": "integer",
             "title": "Schema Version",
@@ -2126,6 +2981,12 @@
           "uid",
           "stream",
           "type",
+          "types",
+          "type_evidence",
+          "removed_types",
+          "classification_evidence_status",
+          "classification_status",
+          "other_reason",
           "topic_key",
           "start_time",
           "end_time",
@@ -2136,11 +2997,19 @@
           "assignees",
           "evidence",
           "attributes",
+          "typed_attributes",
+          "version",
+          "field_states",
+          "field_issues",
+          "manual_operations",
+          "corrected_into",
+          "identity_corrections",
           "extensions",
           "review_flag",
           "closed_at",
           "recovery",
           "recurrence_of",
+          "relations",
           "schema_version"
         ],
         "title": "EventSnapshot",
@@ -2243,6 +3112,17 @@
             ],
             "title": "Sender Kind",
             "default": "unknown"
+          },
+          "origin_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Event Id"
           }
         },
         "type": "object",
@@ -2260,7 +3140,8 @@
           "sender_name",
           "internal_hint",
           "sender_role",
-          "sender_kind"
+          "sender_kind",
+          "origin_event_id"
         ],
         "title": "EvidenceResponse",
         "description": "可回到本地消息存储核验的证据，接口不提供完整原始响应。"
@@ -2916,6 +3797,703 @@
         "title": "ExecutionSuggestion",
         "description": "已保存的结构化模型建议，尚不表示被程序采纳或已提交。"
       },
+      "FactOrigin": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Event Id"
+          },
+          "fact_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Fact Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "event_id",
+          "fact_id"
+        ],
+        "title": "FactOrigin"
+      },
+      "FieldAction": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/FieldTarget"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "confirm",
+              "adopt",
+              "set",
+              "clear",
+              "unknown",
+              "not_applicable",
+              "lock",
+              "unlock",
+              "resolve"
+            ],
+            "title": "Action"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "default": "人工确认"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": "当前事项"
+          },
+          "business_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Time"
+          },
+          "time_kind": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "planned",
+              "actual"
+            ],
+            "title": "Time Kind",
+            "default": "unknown"
+          },
+          "issue_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Issue Ids"
+          },
+          "archive_dependents": {
+            "type": "boolean",
+            "title": "Archive Dependents",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "action"
+        ],
+        "title": "FieldAction"
+      },
+      "FieldDecisionRequest": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Uid"
+          },
+          "stream": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Stream"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Operation Id"
+          },
+          "operator": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Operator"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/FieldAction"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Actions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "uid",
+          "stream",
+          "expected_version",
+          "operation_id",
+          "operator",
+          "reason",
+          "actions"
+        ],
+        "title": "FieldDecisionRequest"
+      },
+      "FieldEvidence": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Digest"
+          },
+          "send_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Send Time"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "evidence_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "superseded"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "message_id"
+        ],
+        "title": "FieldEvidence"
+      },
+      "FieldFact": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "value_state": {
+            "type": "string",
+            "enum": [
+              "value",
+              "cleared",
+              "unknown",
+              "not_applicable"
+            ],
+            "title": "Value State"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "business_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Business Time"
+          },
+          "time_kind": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "planned",
+              "actual"
+            ],
+            "title": "Time Kind"
+          },
+          "intent": {
+            "type": "string",
+            "title": "Intent"
+          },
+          "replaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Replaces"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/FieldEvidence"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "manual",
+              "legacy"
+            ],
+            "title": "Source"
+          },
+          "evidence_status": {
+            "type": "string",
+            "title": "Evidence Status"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "input_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Ref"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operation Id"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "origin_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Event Id"
+          },
+          "origin_fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Fact Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "value",
+          "value_state",
+          "stage",
+          "scope",
+          "business_time",
+          "time_kind",
+          "intent",
+          "replaces",
+          "reason",
+          "evidence",
+          "source",
+          "evidence_status",
+          "status",
+          "input_ref"
+        ],
+        "title": "FieldFact"
+      },
+      "FieldIssue": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "field_key": {
+            "type": "string",
+            "title": "Field Key"
+          },
+          "target": {
+            "$ref": "#/components/schemas/FieldTarget"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "fact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fact Id"
+          },
+          "affected_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Affected Ids"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ],
+            "title": "Status"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution"
+          },
+          "origin_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Event Id"
+          },
+          "origin_issue_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Issue Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "field_key",
+          "target",
+          "reason",
+          "fact_id",
+          "affected_ids",
+          "status",
+          "resolution"
+        ],
+        "title": "FieldIssue"
+      },
+      "FieldOperation": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "request_digest": {
+            "type": "string",
+            "title": "Request Digest"
+          },
+          "operator": {
+            "type": "string",
+            "title": "Operator"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "decided_at": {
+            "type": "string",
+            "title": "Decided At"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/FieldAction"
+            },
+            "type": "array",
+            "title": "Actions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation_id",
+          "request_digest",
+          "operator",
+          "reason",
+          "decided_at",
+          "version",
+          "actions"
+        ],
+        "title": "FieldOperation"
+      },
+      "FieldState": {
+        "properties": {
+          "target": {
+            "$ref": "#/components/schemas/FieldTarget"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/FieldFact"
+            },
+            "type": "array",
+            "title": "Facts"
+          },
+          "adopted_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Adopted Ids"
+          },
+          "locked_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Locked Ids"
+          },
+          "locked": {
+            "type": "boolean",
+            "title": "Locked"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived"
+          },
+          "inherited_decisions": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Inherited Decisions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "facts",
+          "adopted_ids",
+          "locked_ids",
+          "locked",
+          "decision",
+          "archived"
+        ],
+        "title": "FieldState"
+      },
+      "FieldTarget": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "common",
+              "label",
+              "attribute"
+            ],
+            "title": "Kind"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "type_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type Label"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "name"
+        ],
+        "title": "FieldTarget"
+      },
       "HealthResponse": {
         "properties": {
           "status": {
@@ -2931,6 +4509,107 @@
         ],
         "title": "HealthResponse",
         "description": "本地服务健康状态，不携带运行凭据。"
+      },
+      "IdentityCorrectionOperation": {
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "title": "Operation Id"
+          },
+          "request_digest": {
+            "type": "string",
+            "title": "Request Digest"
+          },
+          "outcome": {
+            "type": "string",
+            "const": "committed",
+            "title": "Outcome"
+          },
+          "duplicate_event_id": {
+            "type": "string",
+            "title": "Duplicate Event Id"
+          },
+          "retained_event_id": {
+            "type": "string",
+            "title": "Retained Event Id"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "stream": {
+            "type": "string",
+            "title": "Stream"
+          },
+          "before_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Before Versions"
+          },
+          "after_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "After Versions"
+          },
+          "operator": {
+            "type": "string",
+            "title": "Operator"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope"
+          },
+          "decided_at": {
+            "type": "string",
+            "title": "Decided At"
+          },
+          "effective_after": {
+            "type": "string",
+            "title": "Effective After"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionProof"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "resolutions": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionResolution"
+            },
+            "type": "array",
+            "title": "Resolutions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation_id",
+          "request_digest",
+          "outcome",
+          "duplicate_event_id",
+          "retained_event_id",
+          "uid",
+          "stream",
+          "before_versions",
+          "after_versions",
+          "operator",
+          "reason",
+          "scope",
+          "decided_at",
+          "effective_after",
+          "evidence",
+          "resolutions"
+        ],
+        "title": "IdentityCorrectionOperation"
       },
       "JsonValue": {},
       "NormalizedRunRequest": {
@@ -3294,12 +4973,42 @@
           },
           "identity_basis": {
             "type": "string",
-            "const": "confirmed_account",
+            "enum": [
+              "confirmed_account",
+              "confirmed_support_account"
+            ],
             "title": "Identity Basis"
           },
           "policy_version": {
             "type": "string",
             "title": "Policy Version"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "pending"
+            ],
+            "title": "Review Status",
+            "default": "confirmed"
+          },
+          "supporting_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerRecoveryEvidence"
+            },
+            "type": "array",
+            "title": "Supporting Evidence"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
           }
         },
         "type": "object",
@@ -3307,7 +5016,10 @@
           "confirmed_at",
           "evidence",
           "identity_basis",
-          "policy_version"
+          "policy_version",
+          "review_status",
+          "supporting_evidence",
+          "scope"
         ],
         "title": "RecoveryConfirmation",
         "description": "确认消息的时间与证据；不推测故障实际恢复的精确时刻。"
@@ -3335,6 +5047,48 @@
           "policy_version": {
             "type": "string",
             "title": "Policy Version"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "pending",
+              "retracted"
+            ],
+            "title": "Review Status",
+            "default": "confirmed"
+          },
+          "review_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Reason"
+          },
+          "retraction_evidence": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Retraction Evidence"
+          },
+          "retracted_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retracted By"
           }
         },
         "type": "object",
@@ -3343,7 +5097,11 @@
           "reason",
           "recovery",
           "evidence",
-          "policy_version"
+          "policy_version",
+          "review_status",
+          "review_reason",
+          "retraction_evidence",
+          "retracted_by"
         ],
         "title": "RecurrenceLink",
         "description": "新事件指向前次事件，保留建立关联时的恢复依据。"
@@ -3590,6 +5348,101 @@
         ],
         "title": "RunResponse",
         "description": "持久化任务状态；列表省略 cycles 内容，详情提供完整周期结果。"
+      },
+      "SameRoundCorrectionRequest": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Uid"
+          },
+          "stream": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Stream"
+          },
+          "retained_event_id": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Retained Event Id"
+          },
+          "expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Expected Version"
+          },
+          "retained_expected_version": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Retained Expected Version"
+          },
+          "operation_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_-]+$",
+            "title": "Operation Id"
+          },
+          "operator": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Operator"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason"
+          },
+          "same_round": {
+            "type": "boolean",
+            "const": true,
+            "title": "Same Round"
+          },
+          "scope": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Scope"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionProof"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Evidence"
+          },
+          "resolutions": {
+            "items": {
+              "$ref": "#/components/schemas/CorrectionResolution"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Resolutions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "uid",
+          "stream",
+          "retained_event_id",
+          "expected_version",
+          "retained_expected_version",
+          "operation_id",
+          "operator",
+          "reason",
+          "same_round",
+          "scope",
+          "evidence"
+        ],
+        "title": "SameRoundCorrectionRequest"
       },
       "ScopedChangeTask": {
         "properties": {

@@ -71,6 +71,21 @@ def configured_stream(settings: Settings) -> str:
     return xhub_identity(settings.llm_model, "json_schema", settings.llm_max_tokens)["stream"]
 
 
+def strict_schema(schema: dict) -> dict:
+    value = deepcopy(schema)
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if item.get("type") == "object":
+            item["required"] = list(item.get("properties", {}))
+        for nested in item.values():
+            if isinstance(nested, dict):
+                pending.append(nested)
+            elif isinstance(nested, list):
+                pending.extend(entry for entry in nested if isinstance(entry, dict))
+    return value
+
+
 class XHubProvider:
     """使用 Chat Completions 的显式格式参数；不自动重试收费请求或静默降级。"""
 
@@ -89,7 +104,7 @@ class XHubProvider:
             raise XHubError("结构纠正最多允许一次")
         self.repair_attempts = repair_attempts
         self.prompt = PROMPT_PATH.read_text(encoding="utf-8")
-        schema = ExtractionOutput.model_json_schema()
+        schema = strict_schema(ExtractionOutput.model_json_schema())
         self.schema = schema
         self.prompt_hash = hashlib.sha256(self.prompt.encode()).hexdigest()
         self.schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
@@ -129,7 +144,7 @@ class XHubProvider:
             raise XHubError("历史候选不属于当前客户或分析流")
         self.history_retrieval = result
         self.history_context = None
-        self.schema = AttributionOutput.model_json_schema()
+        self.schema = strict_schema(AttributionOutput.model_json_schema())
         self.schema_hash = hashlib.sha256(json.dumps(self.schema, sort_keys=True).encode()).hexdigest()
 
     def configure_history_context(self, result):
@@ -298,6 +313,7 @@ class XHubProvider:
             normalizations = []
             candidates = parser(content, new_messages, context, visible_events,
                 **({"normalizations": normalizations,
+                    "allow_legacy": False,
                     "history_items": payload.get("history_context", {}).get("items", [])}
                    if self.history_retrieval is not None else {}))
             trace["normalizations"] = normalizations

@@ -81,6 +81,12 @@ def test_inclusive_date_range_keeps_both_days():
     assert len(ChatRecordsAdapter().normalize(value, UID, DAY, date(2026, 11, 9))) == 2
 
 
+def test_official_midnight_range_echo_matches_requested_inclusive_dates():
+    value = payload()
+    value.update(start="2026-11-08 00:00:00", end="2026-11-09 00:00:00")
+    assert len(ChatRecordsAdapter().normalize(value, UID, DAY, DAY)) == 1
+
+
 @pytest.mark.parametrize("where", ["top", "group"])
 def test_incomplete_response_is_rejected(where):
     value = payload()

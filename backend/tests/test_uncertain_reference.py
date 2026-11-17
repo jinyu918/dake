@@ -20,7 +20,7 @@ def test_uncertain_reference_normalization_keeps_business_decision(case):
     if case == "has_changes": c.changes = [dict(kind="progress")]
     before = deepcopy(c)
     normalized = normalize_uncertain_reference(c, events)
-    if case in {"known", "duplicate", "has_changes"}:
+    if case in {"known", "duplicate", "wrong_type", "has_changes"}:
         assert c.decision == "review" and c.changes == before.changes and c.referenced_event_id is None
         assert c.continuity["previous_event_id"] is None and c.possible_event_ids == ["synthetic-event"]
         assert c.continuity["evidence"] == before.continuity["evidence"]

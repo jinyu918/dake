@@ -13,7 +13,7 @@ from dake.analysis.attribution import attribution_version, parse_attribution_out
 from dake.analysis.contract import ContractError
 from dake.analysis.providers.xhub import XHubConfig, XHubProvider, configured_stream
 from dake.config import Settings
-from dake.domain.models import Candidate, Message, Window, parse_time
+from dake.domain.models import Candidate, Event, Message, Window, parse_time
 from dake.jobs.runner import prepare_request
 from dake.repositories.mysql import MySQLStore, StorageError
 from dake.services.processing import IncrementalService
@@ -263,11 +263,13 @@ def model_output(msg, **changes):
     value = dict(type="排障", topic_key=TOPIC, summary=msg.content, evidence_ids=[msg.key], status=None,
                  severity=None, assignees=[], attributes=[], extensions=[], decision="new",
                  referenced_event_id=None, decision_reason="新消息明确描述独立事项",
+                 type_labels=[dict(type="排障", evidence_ids=[msg.key], quote=msg.content)],
+                 removed_types=[], typed_attributes=[], classification_status="已分类", other_reason=None,
                  basis=[dict(message_id=msg.key, quote=msg.content)], possible_event_ids=[], continuity=None,
-                 changes=[] if changes.get("decision") in {"duplicate", "review"} else [dict(
+                 field_updates=[], changes=[] if changes.get("decision") in {"duplicate", "review"} else [dict(
                      kind="progress", text=msg.content, evidence=[dict(message_id=msg.key, quote=msg.content)], replaces=None)])
     value.update(changes)
-    return json.dumps(dict(schema_version="4.0", candidates=[value]), ensure_ascii=False)
+    return json.dumps(dict(schema_version="5.0", candidates=[value]), ensure_ascii=False)
 
 
 def test_formal_xhub_uses_four_way_contract_without_changing_stream(tmp_path):
@@ -287,10 +289,34 @@ def test_formal_xhub_uses_four_way_contract_without_changing_stream(tmp_path):
         assert provider.name == before_stream == configured_stream(settings)
         payload = json.loads(calls[0]["messages"][1]["content"])
         assert payload["attribution_policy"]["version"] == attribution_version()
-        assert calls[0]["response_format"]["json_schema"]["schema"]["properties"]["schema_version"]["const"] == "4.0"
+        assert calls[0]["response_format"]["json_schema"]["schema"]["properties"]["schema_version"]["const"] == "5.0"
         request, _ = prepare_request(settings, {})
         assert request["attribution_version"] == attribution_version()
         assert result.filter_audit[0]["action"] == "new"
+    finally:
+        provider.close()
+
+
+def test_formal_xhub_repairs_legacy_output_instead_of_using_legacy_field_rules(tmp_path):
+    msg = message("new", 1)
+    settings = Settings(uid=UID, data_dir=tmp_path, start=window(1).start, end=window(2).end, provider="xhub")
+    calls = []
+
+    def respond(request):
+        calls.append(json.loads(request.content))
+        payload = json.loads(model_output(msg))
+        if len(calls) == 1:
+            payload["schema_version"] = "4.0"
+            payload["candidates"][0].pop("field_updates")
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": json.dumps(payload)}}]})
+
+    provider = XHubProvider(XHubConfig(model=settings.llm_model, api_key="synthetic-placeholder", max_tokens=settings.llm_max_tokens), settings,
+                            transport=httpx.MockTransport(respond))
+    try:
+        result = IncrementalService(MemoryStore(), FakeSource([msg]), provider, settings).run_window(UID, window(1))
+        assert len(result.created) == 1 and len(calls) == 2
+        assert "schema_version 5.0" in calls[-1]["messages"][-1]["content"]
+        assert provider.name == configured_stream(settings)
     finally:
         provider.close()
 
@@ -420,6 +446,121 @@ def test_formal_schema_requires_evidence_and_rejects_invented_target():
     with pytest.raises(ContractError):
         parse_attribution_output(model_output(msg, decision="duplicate", referenced_event_id="invented"), [msg], [], [])
     assert parse_attribution_output(model_output(msg), [msg], [], [])[0].decision == "new"
+
+
+def test_formal_new_event_saves_typed_attribute_and_revision_snapshot(tmp_path):
+    msg = message("resource-new", 1, "请将虚构环境配额提高到2000次/分钟")
+    settings = Settings(uid=UID, data_dir=tmp_path, start=window(1).start, end=window(2).end, provider="xhub")
+    fact = dict(type_label="资源需求", name="目标总量与增减量", value="2000次/分钟",
+                evidence_ids=[msg.key], quote=msg.content)
+    content = model_output(msg, type="资源需求", type_labels=[
+        dict(type="资源需求", evidence_ids=[msg.key], quote=msg.content)],
+        field_updates=[dict(target=dict(kind="attribute", type_label="资源需求", name=fact["name"]),
+            ref="opening-quantity", value=fact["value"], stage="目标总量", scope="虚构环境", business_time=None,
+            time_kind="unknown", intent="supplement", replaces=[], reason="合成资源申请直接依据",
+            evidence=[dict(message_id=msg.key, quote=msg.content)])])
+    def respond(request):
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": content}}]})
+
+    provider = XHubProvider(
+        XHubConfig(model=settings.llm_model, api_key="synthetic-placeholder", max_tokens=8192),
+        settings,
+        transport=httpx.MockTransport(respond),
+    )
+    store = MemoryStore()
+    service = IncrementalService(store, FakeSource([msg]), provider, settings)
+    try:
+        result = service.run_window(UID, window(1))
+
+        assert len(result.created) == 1 and not result.updated and not result.review
+        event = store.events[result.created[0]]
+        expected = {"value": fact["value"], "evidence_ids": fact["evidence_ids"], "quote": fact["quote"],
+                    "name": fact["name"], "type_label": fact["type_label"], "value_state": "value"}
+        expected["evidence_refs"] = [dict(source=msg.source, message_id=msg.message_id,
+            digest=msg.digest, conversation_id=msg.conversation_id, send_time=msg.sent_at.isoformat(),
+            quote=msg.content)]
+        assert event.typed_attributes["资源需求"]["目标总量与增减量"] == expected
+        assert event.attributes["目标总量与增减量"] == fact["value"]
+        assert event.evidence[0]["message_id"] == msg.message_id
+        snapshot = event.updated_by[0]["snapshot"]
+        assert snapshot["typed_attributes"]["资源需求"]["目标总量与增减量"] == expected
+        assert snapshot["evidence"][0]["message_id"] == msg.message_id
+    finally:
+        provider.close()
+
+
+def test_formal_labels_require_independent_evidence_and_support_pending_classification():
+    from dake.analysis.attribution import AttributionOutput
+
+    msg = message("classification", 1)
+    labels = [dict(type="排障", evidence_ids=[msg.key], quote=msg.content),
+              dict(type="资源需求", evidence_ids=[msg.key], quote=msg.content)]
+    parsed = parse_attribution_output(model_output(msg, type_labels=labels), [msg], [], [])[0]
+    assert parsed.label_types() == ["排障", "资源需求"]
+    assert set(parsed.type_evidence) == {"排障", "资源需求"}
+
+    missing = json.loads(model_output(msg))
+    del missing["candidates"][0]["type_labels"]
+    with pytest.raises(ContractError):
+        parse_attribution_output(json.dumps(missing, ensure_ascii=False), [msg], [], [])
+
+    pending = json.loads(model_output(msg, type="待分类", classification_status="待分类", type_labels=[]))
+    assert parse_attribution_output(json.dumps(pending, ensure_ascii=False), [msg], [], [])[0].types == []
+
+    duplicate_retraction = json.loads(model_output(msg, decision="duplicate", type_labels=[
+        dict(type="排障", evidence_ids=[msg.key], quote=msg.content)], removed_types=[]))
+    duplicate_retraction["candidates"][0]["removed_types"] = [
+        dict(type="排障", evidence_ids=[msg.key], quote=msg.content)]
+    duplicate_retraction["candidates"][0]["referenced_event_id"] = "old-event"
+    with pytest.raises(ContractError):
+        parse_attribution_output(json.dumps(duplicate_retraction, ensure_ascii=False), [msg], [], [
+            Event.from_dict(dict(event_id="old-event", uid=UID, stream="synthetic-attribution-stream",
+                type="排障", types=["排障"], topic_key=TOPIC, start_time=msg.sent_at.isoformat(),
+                end_time=msg.sent_at.isoformat(), created_on=msg.sent_at.isoformat(), status="未知",
+                severity="未知", summary=msg.content, evidence=[], updated_by=[]))])
+
+
+def test_label_addition_and_retraction_preserve_event_identity_and_typed_attributes(tmp_path):
+    service, store, provider, source, old, event_id = opened(tmp_path)
+    added = message("resource", 2, "虚构工单 CASE-SYN-42 报告上传失败，同时申请把配额增加到1200")
+    source.messages.append(added)
+    fact = dict(value="1200", evidence_ids=[added.key], quote=added.content)
+    provider.mapping[added.message_id] = candidate(added, "update", event_id, [old],
+        types=["排障", "资源需求"],
+        type_evidence={label: [dict(evidence_ids=[added.key], quote=added.content)]
+                       for label in ("排障", "资源需求")},
+        typed_attributes={"资源需求": {"目标总量与增减量": fact}})
+    result = service.run_window(UID, window(2))
+    assert result.updated == [event_id] and not result.created
+    event = store.events[event_id]
+    assert event.event_id == event_id and event.types == ["排障", "资源需求"]
+    expected_fact = fact | {"evidence_refs": [dict(source=added.source, message_id=added.message_id,
+        id=added.message_id, digest=added.digest, conversation_id=added.conversation_id,
+        send_time=added.sent_at.isoformat(), quote=added.content)]}
+    assert event.typed_attributes["资源需求"]["目标总量与增减量"] == expected_fact
+    assert event.attributes["目标总量与增减量"] == "1200"
+
+    unchanged = message("unchanged", 3, "虚构工单 CASE-SYN-42 的排障继续处理，没有更新资源申请")
+    source.messages.append(unchanged)
+    provider.mapping[unchanged.message_id] = candidate(unchanged, "update", event_id, [added],
+        types=["排障"],
+        type_evidence={"排障": [dict(evidence_ids=[unchanged.key], quote=unchanged.content)]})
+    result = service.run_window(UID, window(3))
+    assert result.updated == [event_id] and store.events[event_id].types == ["排障", "资源需求"]
+    assert store.events[event_id].typed_attributes["资源需求"]["目标总量与增减量"] == expected_fact
+
+    corrected = message("correction", 4, "更正：这次没有配额申请，先前增加配额的说法不适用")
+    source.messages.append(corrected)
+    provider.mapping[corrected.message_id] = candidate(corrected, "update", event_id, [unchanged],
+        types=["排障"],
+        type_evidence={"排障": [dict(evidence_ids=[corrected.key], quote=corrected.content)]},
+        removed_types={"资源需求": [dict(evidence_ids=[corrected.key], quote=corrected.content)]})
+    result = service.run_window(UID, window(4))
+    assert result.updated == [event_id] and not result.created
+    event = store.events[event_id]
+    assert event.event_id == event_id and event.types == ["排障"]
+    assert "资源需求" not in event.typed_attributes and "目标总量与增减量" not in event.attributes
+    assert event.removed_types["资源需求"]
 
 
 def test_grouping_late_and_current_feedback_keeps_newer_state(tmp_path):

@@ -1,7 +1,7 @@
 """验证候选与证据来源，计算新增证据时间边界。"""
 
 from datetime import datetime
-from ..domain.models import Candidate, EVENT_TYPES, Message
+from ..domain.models import Candidate, EVENT_LABELS, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Message
 
 
 def evidence_map(messages: list[Message]) -> dict[str, Message]:
@@ -21,8 +21,19 @@ def validate_candidates(candidates, new_messages, context) -> dict[str, Message]
     available = evidence_map(context + new_messages)
     new_keys = {m.key for m in new_messages}
     for item in candidates:
-        if not isinstance(item, Candidate) or item.type not in EVENT_TYPES:
-            raise ValueError("抽取结果的主类型不在官方六类中")
+        if not isinstance(item, Candidate) or item.type not in (*EVENT_LABELS, PENDING_TYPE):
+            raise ValueError("抽取结果的主类型不在允许的六类、其他或待分类中")
+        labels = item.label_types()
+        if item.classification_status == "待分类":
+            if item.type != PENDING_TYPE or labels:
+                raise ValueError("待分类候选不能带已采用类型标签")
+        elif item.type == PENDING_TYPE:
+            raise ValueError("待分类候选必须显式标记分类状态")
+        elif item.types is not None and item.type not in labels:
+            raise ValueError("主类型必须包含在当前标签集合中")
+        if item.type == "其他" or "其他" in labels:
+            if not item.other_reason:
+                raise ValueError("其他标签必须有排除六类的理由")
         if not isinstance(item.summary, str) or not item.summary.strip():
             raise ValueError("抽取结果缺少内容概述")
         if not isinstance(item.evidence_ids, list) or not item.evidence_ids:
@@ -39,6 +50,41 @@ def validate_candidates(candidates, new_messages, context) -> dict[str, Message]
             raise ValueError("跟进人字段须为字符串列表")
         if not isinstance(item.attributes, dict) or not isinstance(item.extensions, dict):
             raise ValueError("专属属性和扩展字段须为对象")
+        for label, facts in item.type_evidence.items():
+            if label not in labels:
+                raise ValueError("类型证据不能指向未采用的标签")
+            for fact in facts:
+                refs = fact.get("evidence_ids", []) if isinstance(fact, dict) else []
+                quote = fact.get("quote") if isinstance(fact, dict) else None
+                if (not refs or any(ref not in available for ref in refs)
+                        or not isinstance(quote, str)
+                        or not any(quote in available[ref].content for ref in refs)):
+                    raise ValueError("类型标签证据必须能在输入消息中核对")
+        for label, fact_map in item.typed_attributes.items():
+            if label not in labels or not isinstance(fact_map, dict):
+                raise ValueError("类型专属属性必须对应已采用标签")
+            for name, fact in fact_map.items():
+                if not isinstance(name, str) or not name or not isinstance(fact, dict):
+                    raise ValueError("类型专属属性结构无效")
+                if name not in TYPE_ATTRIBUTE_NAMES.get(label, ()):
+                    raise ValueError("类型专属属性名称不属于该类型字典")
+                refs = fact.get("evidence_ids", [])
+                quote = fact.get("quote")
+                value = fact.get("value")
+                if (not refs or any(ref not in available for ref in refs) or not isinstance(quote, str)
+                        or not isinstance(value, str) or value not in quote
+                        or not any(quote in available[ref].content for ref in refs)):
+                    raise ValueError("类型专属属性值必须有可核对的直接证据")
+        for label, facts in item.removed_types.items():
+            if label in labels:
+                raise ValueError("同一类型不能同时采用和撤销")
+            for fact in facts:
+                refs = fact.get("evidence_ids", []) if isinstance(fact, dict) else []
+                quote = fact.get("quote") if isinstance(fact, dict) else None
+                if (not refs or any(ref not in available for ref in refs)
+                        or not isinstance(quote, str)
+                        or not any(quote in available[ref].content for ref in refs)):
+                    raise ValueError("标签撤销证据必须能在输入消息中核对")
     return available
 
 

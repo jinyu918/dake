@@ -9,6 +9,18 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Asia/Shanghai")
 EVENT_TYPES = ("商机", "流失", "排障", "资源需求", "功能需求", "商务需求")
+EVENT_LABELS = EVENT_TYPES + ("其他",)
+PENDING_TYPE = "待分类"
+
+# 只作为属性名称的业务字典，不把缺失字段变成建项条件。
+TYPE_ATTRIBUTE_NAMES = {
+    "商机": ("交易对象与采购范围", "采购意向与评估事实", "计划规模", "预算或交易金额", "采购/上线计划时间", "成交事实及范围"),
+    "流失": ("流失对象与范围", "风险、计划与实际变化", "原因与触发条件", "减少或转移规模", "去向与执行时间", "挽留或退出办理结果"),
+    "排障": ("异常对象与环境", "症状与对照表现", "客户影响", "发生及影响范围", "排查发现与根因", "处置与验证结果", "恢复事实"),
+    "资源需求": ("资源对象与交付范围", "请求动作与用途", "现有可用量", "目标总量与增减量", "资源缺口", "期望交付与承诺", "审批、交付与可用验证"),
+    "功能需求": ("能力对象与使用场景", "当前行为及限制", "期望行为与改善目标", "验收条件", "期望可用时间", "评估与承诺范围", "上线与需求验证结果"),
+    "商务需求": ("办理对象与事项范围", "价格与金额口径", "合同与商务条件", "续费或终止安排", "账单与发票要求", "办理期限与约定", "办理事实与结果"),
+}
 
 # 人员角色用于聊天展示；业务判断仅接受已确认账号，不属于官方事件状态枚举。
 SenderRole = Literal["internal", "support", "customer", "external", "unknown"]
@@ -118,6 +130,40 @@ class Candidate:
     possible_event_ids: list[str] = field(default_factory=list)
     changes: list[dict] | None = None
     continuity: dict | None = None
+    # 旧 Provider 只填 type；新 Provider 可填完整当前标签集合及逐标签依据。
+    types: list[str] | None = None
+    type_evidence: dict[str, list[dict]] = field(default_factory=dict)
+    classification_status: str = "已分类"
+    other_reason: dict | None = None
+    removed_types: dict[str, list[dict]] = field(default_factory=dict)
+    typed_attributes: dict[str, dict[str, dict]] = field(default_factory=dict)
+    classification_conflicts: list[str] = field(default_factory=list)
+    field_updates: list[dict] | None = None
+    relations: list[dict] = field(default_factory=list)
+
+    def label_types(self) -> list[str]:
+        """返回当前标签集合；兼容只保存单主类型的旧候选。"""
+        if self.types is not None:
+            return list(dict.fromkeys(self.types))
+        return [] if self.type == PENDING_TYPE else [self.type]
+
+
+def normalize_classification(value: dict) -> dict:
+    result = dict(value)
+    result["version"] = max(result.get("version", 0), len(result.get("updated_by", [])))
+    if result.get("types") is None:
+        result["types"] = [result["type"]] if result.get("type") not in (None, PENDING_TYPE) else []
+    for name in ("type_evidence", "removed_types", "typed_attributes"):
+        if result.get(name) is None:
+            result[name] = {}
+    legacy_attributes = result.pop("attribute_evidence", None)
+    if legacy_attributes and not result["typed_attributes"] and result.get("type") not in (None, PENDING_TYPE):
+        result["typed_attributes"] = {result["type"]: legacy_attributes}
+    if result.get("classification_evidence_status") is None:
+        result["classification_evidence_status"] = "已记录" if result["type_evidence"] else "未记录"
+    if result.get("classification_status") is None:
+        result["classification_status"] = "待分类" if result.get("type") == PENDING_TYPE else "已分类"
+    return result
 
 
 @dataclass
@@ -144,18 +190,38 @@ class Event:
     schema_version: int = 1
     recovery: dict | None = None
     recurrence_of: dict | None = None
+    # 保留 type 作为旧接口主类型；types 记录完整标签集合。
+    types: list[str] = field(default_factory=list)
+    type_evidence: dict[str, list[dict]] = field(default_factory=dict)
+    removed_types: dict[str, list[dict]] = field(default_factory=dict)
+    classification_evidence_status: str = "未记录"
+    classification_status: str = "已分类"
+    other_reason: dict | None = None
+    typed_attributes: dict[str, dict[str, dict]] = field(default_factory=dict)
+    version: int = 0
+    field_states: dict[str, dict] = field(default_factory=dict)
+    field_issues: list[dict] = field(default_factory=list)
+    manual_operations: list[dict] = field(default_factory=list)
+    corrected_into: str | None = None
+    identity_corrections: list[dict] = field(default_factory=list)
+    relations: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """导出完整事件，只供数据库和私有快照使用，不直接打印到日志。"""
-        return json_value(asdict(self))
+        value = asdict(self)
+        value["version"] = max(self.version, len(self.updated_by))
+        if not value["types"] and value["type"] != PENDING_TYPE:
+            value["types"] = [value["type"]]
+        return json_value(value)
 
     @classmethod
     def from_dict(cls, value: dict) -> "Event":
         """从持久化结构恢复事件及其时间字段。"""
-        value = dict(value)
+        value = normalize_classification(value)
         for key in ("start_time", "end_time", "created_on", "closed_at"):
             if value.get(key) is not None:
                 value[key] = parse_time(value[key])
+        value.setdefault("other_reason", None)
         return cls(**value)
 
 

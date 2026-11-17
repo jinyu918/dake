@@ -20,6 +20,10 @@ class MemoryStore:
         pass
 
     @contextmanager
+    def customer_lock(self, uid):
+        yield self
+
+    @contextmanager
     def transaction(self, uid):
         if self._uid is not None:
             raise RuntimeError("测试仓库不允许嵌套事务")

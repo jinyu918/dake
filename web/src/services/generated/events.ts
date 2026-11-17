@@ -50,3 +50,85 @@ export async function getEventChanges(
     ...(options || {}),
   });
 }
+
+/** Submit Field Decision POST /api/v1/events/${param0}/field-decisions */
+export async function submitFieldDecision(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.submitFieldDecisionParams,
+  body: API.FieldDecisionRequest,
+  options?: { signal?: AbortSignal }
+) {
+  const { event_id: param0, ...queryParams } = params;
+  return request<API.EventResponse>(
+    `/api/v1/events/${param0}/field-decisions`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      params: { ...queryParams },
+      data: body,
+      ...(options || {}),
+    }
+  );
+}
+
+/** Get Field Decision GET /api/v1/events/${param0}/field-decisions/${param1} */
+export async function getFieldDecision(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.getFieldDecisionParams,
+  options?: { signal?: AbortSignal }
+) {
+  const { event_id: param0, operation_id: param1, ...queryParams } = params;
+  return request<API.FieldOperation>(
+    `/api/v1/events/${param0}/field-decisions/${param1}`,
+    {
+      method: "GET",
+      params: {
+        ...queryParams,
+      },
+      ...(options || {}),
+    }
+  );
+}
+
+/** Correct Same Round POST /api/v1/events/${param0}/same-round-corrections */
+export async function correctSameRound(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.correctSameRoundParams,
+  body: API.SameRoundCorrectionRequest,
+  options?: { signal?: AbortSignal }
+) {
+  const { event_id: param0, ...queryParams } = params;
+  return request<API.IdentityCorrectionOperation>(
+    `/api/v1/events/${param0}/same-round-corrections`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      params: { ...queryParams },
+      data: body,
+      ...(options || {}),
+    }
+  );
+}
+
+/** Get Same Round Correction GET /api/v1/events/${param0}/same-round-corrections/${param1} */
+export async function getSameRoundCorrection(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.getSameRoundCorrectionParams,
+  options?: { signal?: AbortSignal }
+) {
+  const { event_id: param0, operation_id: param1, ...queryParams } = params;
+  return request<API.IdentityCorrectionOperation | API.CorrectionNotCommitted>(
+    `/api/v1/events/${param0}/same-round-corrections/${param1}`,
+    {
+      method: "GET",
+      params: {
+        ...queryParams,
+      },
+      ...(options || {}),
+    }
+  );
+}

@@ -7,7 +7,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
-import { EventType } from './EventType';
+import { ClassificationDetails } from './ClassificationDetails';
 import { ErrorNotice, LoadingRows } from './Feedback';
 import {
   Dialog,
@@ -15,21 +15,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from './ui/dialog';
-
-const attributeNames: Record<string, string> = {
-  resource_type: '资源类型',
-  quantity: '数量',
-  region: '地域',
-  deadline: '期望时间',
-  product: '产品',
-  product_line: '产品线',
-  impact: '影响范围',
-  specification: '规格',
-  intent: '意向',
-  reason: '原因',
-  amount: '金额',
-  next_step: '下一步',
-};
 
 /** 从当前事件或某一周期的快照展示详情，历史快照不会被最新状态替换。 */
 export function EventDetail({
@@ -71,10 +56,11 @@ export function EventDetail({
         ) : (
           event && (
             <div className="event-detail-body">
-              <div className="detail-badges">
-                <EventType type={event.type} />
-                {historical && <span className="badge">历史快照</span>}
-              </div>
+              {historical ? (
+                <div className="detail-badges">
+                  <span className="badge">历史快照</span>
+                </div>
+              ) : null}
               <h2>{event.summary}</h2>
               <div className="event-identifier">
                 事件编号 <span>{event.event_id}</span>
@@ -84,6 +70,7 @@ export function EventDetail({
                   {event.review_flag}，需要进一步核对。
                 </div>
               )}
+              <ClassificationDetails event={event} />
               <dl className="detail-metadata">
                 <div>
                   <dt>
@@ -134,7 +121,7 @@ export function EventDetail({
                   <dl className="attributes">
                     {Object.entries(event.attributes).map(([key, value]) => (
                       <div key={key}>
-                        <dt>{attributeNames[key] || key}</dt>
+                        <dt>{key}</dt>
                         <dd>
                           {typeof value === 'object'
                             ? JSON.stringify(value)

@@ -7,12 +7,22 @@ const fields = {
   severity: '等级',
   assignees: '跟进人',
   attributes: '事件属性',
+  types: '类型标签',
+  type_evidence: '分类依据',
+  removed_types: '标签撤销记录',
+  typed_attributes: '类型专属属性',
+  classification_status: '分类状态',
+  classification_evidence_status: '分类依据状态',
+  other_reason: '其他业务理由',
   recovery: '恢复确认',
   recurrence_of: '复发关联',
   review_flag: '待确认标记',
   closed_at: '关闭状态',
   type: '事件类型',
   topic_key: '事件主题',
+  field_states: '字段采用与锁定',
+  field_issues: '字段待复核问题',
+  manual_operations: '人工裁定记录',
 } as const;
 
 function same(left: unknown, right: unknown) {
@@ -122,7 +132,10 @@ export function savedChanges(data: API.EventChangesResponse) {
             Boolean(time) && Number.isFinite(Date.parse(time || '')),
         )
         .sort((left, right) => Date.parse(left) - Date.parse(right));
-      const time = times.at(-1) ?? null;
+      const time =
+        revision.source === 'manual'
+          ? revision.recorded_at
+          : (times.at(-1) ?? null);
       const evidenceOnly =
         revision.action !== 'created' &&
         !changed.length &&
@@ -161,15 +174,19 @@ export function savedChanges(data: API.EventChangesResponse) {
           title:
             revision.action === 'created'
               ? '新建事件'
-              : evidenceOnly
-                ? '仅补证据'
-                : revision.change_kind === 'confirmation'
-                  ? '进展确认'
-                  : revision.change_kind === 'correction'
-                    ? '结论更正'
-                    : revision.change_kind === 'progress'
-                      ? '事件进展'
-                      : '已保存修订',
+              : revision.source === 'manual'
+                ? '人工裁定'
+                : evidenceOnly
+                  ? '仅补证据'
+                  : revision.change_kind === 'confirmation'
+                    ? '进展确认'
+                    : revision.change_kind === 'correction'
+                      ? '结论更正'
+                      : revision.change_kind === 'progress'
+                        ? '事件进展'
+                        : revision.change_kind === 'classification'
+                          ? '分类依据更新'
+                          : '已保存修订',
         },
       ];
     })

@@ -91,7 +91,8 @@ def _commit(record, event, revisions):
             snapshot = deepcopy(revisions[index].get("snapshot"))
             if snapshot and (snapshot.get("uid"), snapshot.get("stream"), snapshot.get("event_id")) == (event["uid"], event["stream"], event["event_id"]):
                 snapshot["updated_by"] = [{k: v for k, v in r.items() if k != "snapshot"}
-                    for r in event.get("updated_by", [])[:index + 1] if parse_time(r["window_end"]) <= parse_time(record["window_end"])]
+                    for r in event.get("updated_by", [])[:index + 1] if r.get("source") != "manual"
+                    and parse_time(r["window_end"]) <= parse_time(record["window_end"])]
                 reference_valid = fingerprint(snapshot) == matching_ref.get("digest")
     if reference_valid and receipt.get("kind") == "analysis":
         for write in writes:

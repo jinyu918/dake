@@ -322,7 +322,9 @@ export function ChangesContent({
                 >
                   <summary>
                     版本 {revision.revision_no ?? '未记录'} ·{' '}
-                    {formatTime(revision.window_start)}
+                    {revision.source === 'manual'
+                      ? `人工裁定 · ${revision.recorded_at ? formatTime(revision.recorded_at) : '时间未记录'}`
+                      : formatTime(revision.window_start)}
                   </summary>
                   <VersionDifference
                     revision={revision}

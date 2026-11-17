@@ -53,7 +53,7 @@ def main(argv=None):
                 files.append(str(root / "backend/tests/test_execution_panel_mysql.py"))
             plugin = DatabasePlugin(target)
             # 使用本次独立临时目录，避免 pytest 清理其他测试遗留的环境文件而触发隔离保护。
-            result = int(pytest.main(["--noconftest", "-p", "no:cacheprovider", "-q", "--tb=short",
+            result = int(pytest.main(["-c", str(root / "backend/pyproject.toml"), "--noconftest", "-p", "no:cacheprovider", "-q", "--tb=short",
                                      "--basetemp", str(Path(data_dir) / "pytest"), *files], plugins=[plugin]))
             if result == 0 and args.panel_manifest:
                 write_manifest(args.panel_manifest, target, plugin.panel_cases)

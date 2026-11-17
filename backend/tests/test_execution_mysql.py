@@ -108,6 +108,27 @@ def test_atomic_commit_visibility_and_cross_day_evidence(case, monkeypatch):
     assert record["outcome"] == "committed" and record["receipt"]["writes"][0]["event_id"] == events[0].event_id
     assert restore_receipt(case.service, record["receipt"]).to_dict() == result.to_dict()
     monkeypatch.setattr(case.attempts, "write_receipt", original)
+
+
+def test_classification_evidence_version_survives_mysql_roundtrip(case):
+    fact = dict(value="报告上传失败", evidence_ids=[case.first.key], quote=case.first.content,
+                name="症状与对照表现", type_label="排障")
+    case.provider.mapping[case.first.message_id] = candidate(
+        case.first, changes=[change(case.first)], types=["排障"],
+        type_evidence={"排障": [dict(evidence_ids=[case.first.key], quote=case.first.content)]},
+        typed_attributes={"排障": {"症状与对照表现": fact}})
+
+    result = case.service.run_window(case.uid, window(1))
+
+    events, pending, _ = case.inspect()
+    assert result.created == [events[0].event_id] and not pending
+    stored = events[0].typed_attributes["排障"]["症状与对照表现"]
+    assert stored["value"] == fact["value"]
+    assert stored["evidence_refs"] == [dict(source=case.first.source,
+        message_id=case.first.message_id, id=case.first.message_id, digest=case.first.digest,
+        conversation_id=case.first.conversation_id, send_time=case.first.sent_at.isoformat(),
+        quote=case.first.content)]
+    assert events[0].updated_by[0]["snapshot"]["typed_attributes"]["排障"]["症状与对照表现"] == stored
     follow = replace(message(uuid4().hex, 10, "虚构工单 CASE-SYN-42 上次上传失败的问题已定位为参数错误。"), uid=case.uid)
     case.source.messages.append(follow)
     case.provider.mapping[follow.message_id] = candidate(follow, "update", events[0].event_id, [case.first], changes=[change(follow)])
@@ -118,6 +139,303 @@ def test_atomic_commit_visibility_and_cross_day_evidence(case, monkeypatch):
     assert stages["history"]["candidates"] and stages["history_context"]["result"]["items"]
     assert [r["message_id"] for r in record["receipt"]["processed_versions"]] == [follow.message_id]
     assert len(case.provider.calls) == 2
+
+
+def test_common_fields_and_final_adopted_status_keep_closure_consistent_in_mysql(case):
+    from dake.api.app_factory import create_app
+    from dake.analysis.field_changes import field_key
+    from dake.services.queries import QueryService
+    from offline_http import TestClient
+    from test_classification_replay import output_candidate
+    from test_field_decisions import FieldsProvider, change as field_change
+
+    first = replace(case.first, content="虚构申请R正在办理，合成等级甲")
+    closed = replace(first, message_id=uuid4().hex, sent_at=first.sent_at.replace(day=2), content="虚构申请R虚构已恢复")
+    followup = replace(first, message_id=uuid4().hex, sent_at=first.sent_at.replace(day=3), content="虚构申请R补充依据")
+    suggestion = replace(first, message_id=uuid4().hex, sent_at=first.sent_at.replace(day=4), content="虚构申请R正在办理")
+    target = dict(kind="common", name="status", type_label=None)
+    severity = dict(kind="common", name="severity", type_label=None)
+    opening = output_candidate(first, label="资源需求")
+    opening["field_updates"] = [field_change(first, target, "正在办理", stage="跟进状态", reference="status"),
+        field_change(first, severity, "合成等级甲", stage="等级", reference="severity")]
+    provider = FieldsProvider({first.message_id: opening})
+    provider.name = "stub-v1"
+    settings = replace(case.settings, closed_statuses=("虚构已恢复",))
+    case.service.provider, case.service.settings = provider, settings
+    case.source.messages = [first, closed, followup, suggestion]
+    event_id = case.service.run_window(case.uid, window(1)).created[0]
+    app = create_app(settings, query_service=QueryService(settings, attempts=case.attempts), start_worker=False,
+        runner=object(), run_repository=SimpleNamespace(init_schema=lambda: None))
+    path = f"/api/v1/events/{event_id}"
+    with TestClient(app) as client:
+        def current():
+            response = client.get(path, params=dict(uid=case.uid, stream="stub-v1"))
+            assert response.status_code == 200
+            return response.json()
+
+        def decide(operation, action, value=None, lock=False):
+            event = current()
+            state = event["field_states"][field_key(target)]
+            actions = [dict(target=target, action=action, value=value, fact_id=state["adopted_ids"][-1])]
+            if lock:
+                actions.append(dict(target=target, action="lock"))
+            response = client.post(path + "/field-decisions", json=dict(uid=case.uid, stream="stub-v1",
+                expected_version=event["version"], operation_id=operation, operator="虚构操作人",
+                reason="合成状态与关闭宽限核对", actions=actions))
+            assert response.status_code == 200
+            return response.json()
+
+        initial = current()
+        assert initial["status"] == "正在办理" and initial["severity"] == "合成等级甲"
+        assert initial["closed_at"] is None and not initial["field_issues"]
+        closing = output_candidate(closed, label="资源需求", action="update", event_id=event_id, old_message=first)
+        closing["field_updates"] = [field_change(closed, target, "虚构已恢复", stage="完成", intent="progress")]
+        provider.mapping[closed.message_id] = closing
+        case.service.run_window(case.uid, window(2))
+        assert current()["closed_at"] == closed.sent_at.isoformat()
+        addition = output_candidate(followup, label="资源需求", action="update", event_id=event_id,
+            old_message=first, changes=[])
+        addition["field_updates"] = []
+        provider.mapping[followup.message_id] = addition
+        case.service.run_window(case.uid, window(3))
+        assert current()["end_time"] == followup.sent_at.isoformat()
+        assert current()["closed_at"] == closed.sent_at.isoformat()
+        for action in ("set", "unknown", "clear"):
+            reopened = decide("reopen-" + action, action, "正在办理" if action == "set" else None)
+            assert reopened["closed_at"] is None
+            saved = decide("close-after-" + action, "set", "虚构已恢复", lock=action == "clear")
+            assert saved["closed_at"] == followup.sent_at.isoformat()
+            assert saved["updated_by"][-1]["message_ids"] == []
+            fact = saved["field_states"][field_key(target)]["facts"][-1]
+            assert fact["business_time"] is None and fact["decided_at"] != saved["closed_at"]
+        proposed = output_candidate(suggestion, label="资源需求", action="update", event_id=event_id,
+            old_message=first, changes=[])
+        proposed["field_updates"] = [field_change(suggestion, target, "正在办理", stage="新阶段", intent="progress")]
+        provider.mapping[suggestion.message_id] = proposed
+        case.service.run_window(case.uid, window(4))
+        final = current()
+        assert final["status"] == "虚构已恢复" and final["closed_at"] == followup.sent_at.isoformat()
+        assert final["field_states"][field_key(target)]["facts"][-1]["status"] == "suggested"
+        assert final["updated_by"][0]["snapshot"] == initial["updated_by"][0]["snapshot"]
+
+
+def test_revised_relation_without_proposal_is_atomic_and_queryable(case, monkeypatch):
+    from copy import deepcopy
+    from datetime import timedelta
+    from dake.api.app_factory import create_app
+    from dake.services.queries import QueryService
+    from final_replay import record
+    from offline_http import TestClient
+    from test_classification_replay import ref
+    from test_field_decisions import FieldsProvider
+
+    first = replace(case.first, content="虚构事项T的A下载故障，请排查。")
+    second = replace(first, message_id=uuid4().hex, sent_at=first.sent_at.replace(day=2),
+        content="因T故障另立迁移项目M，决定迁出A。")
+    provider = FieldsProvider({first.message_id: record(first, ["排障"])})
+    provider.name = "stub-v1"
+    settings = replace(case.settings, ingest_lookback=timedelta(days=20), context_lookback=timedelta(days=20))
+    case.service.provider, case.service.settings = provider, settings
+    case.source.messages = [first]
+    parent = case.service.run_window(case.uid, window(1)).created[0]
+    item = record(second, ["流失"])
+    item["relations"] = [dict(kind="caused_by", event_id=parent, intent="attach",
+        reason="因T故障另立迁移项目M", evidence=[ref(second)])]
+    item["basis"].append(ref(first))
+    provider.mapping[second.message_id] = item
+    case.source.messages.append(second)
+    child = case.service.run_window(case.uid, window(2)).created[0]
+    before = {event.event_id: deepcopy(event.to_dict()) for event in case.inspect()[0]}
+    revised = replace(second, content="迁移项目M继续办理。")
+    case.source.messages = [first, revised]
+    provider.mapping[second.message_id] = []
+    with monkeypatch.context() as patch:
+        def fail(*args, **kwargs):
+            raise RuntimeError("合成依据复核保存失败")
+        patch.setattr(case.service.store, "save_event", fail)
+        with pytest.raises(RuntimeError, match="合成依据复核保存失败"):
+            case.service.run_window(case.uid, window(3))
+    assert {event.event_id: event.to_dict() for event in case.inspect()[0]} == before
+    with case.attempts.connection() as store:
+        rows, _ = store._execute("SELECT digest FROM messages WHERE uid=%s AND source=%s AND message_id=%s",
+                                 (case.uid, second.source, second.message_id))
+        assert rows[0]["digest"] == second.digest
+    result = case.service.run_window(case.uid, window(3))
+    saved = {event.event_id: event for event in case.inspect()[0]}
+    assert result.updated == [child] and not result.created
+    assert saved[child].relations[0]["review_status"] == "pending"
+    assert saved[parent].to_dict() == before[parent]
+    assert saved[child].updated_by[:len(before[child]["updated_by"])] == before[child]["updated_by"]
+    revision = saved[child].updated_by[-1]
+    assert revision["change_summary"] == "消息依据修订复核" and "relations" in revision["changed_fields"]
+    receipt = case.latest()["receipt"]
+    assert any(write["event_id"] == child for write in receipt["writes"])
+    assert restore_receipt(case.service, receipt).to_dict() == result.to_dict()
+    app = create_app(settings, query_service=QueryService(settings, attempts=case.attempts),
+        start_worker=False, runner=object(), run_repository=SimpleNamespace(init_schema=lambda: None))
+    with TestClient(app) as client:
+        response = client.get(f"/api/v1/events/{child}", params=dict(uid=case.uid, stream="stub-v1"))
+        assert response.status_code == 200
+        assert response.json()["relations"][0]["review_status"] == "pending"
+        assert response.json()["relations"][0]["evidence"][0]["digest"] == second.digest
+        assert response.json()["relations"][0]["evidence"][0]["evidence_status"] == "superseded"
+    history = deepcopy(saved[child].updated_by)
+    case.source.messages = [first, second]
+    restored = case.service.run_window(case.uid, window(4))
+    saved = {event.event_id: event for event in case.inspect()[0]}
+    assert restored.updated == [child]
+    assert saved[child].relations[0]["review_status"] == "confirmed"
+    assert saved[child].relations[0]["evidence"][0].get("evidence_status") != "superseded"
+    assert saved[child].updated_by[:len(history)] == history
+    assert any(write["event_id"] == child for write in case.latest()["receipt"]["writes"])
+
+
+def test_field_decision_a36_http_roundtrip_concurrency_rollback_and_receipt(case, monkeypatch):
+    from contextlib import contextmanager
+    from copy import deepcopy
+    from dake.api.app_factory import create_app
+    from dake.domain.fields import FieldDecisionRequest
+    from dake.repositories.mysql import TransactionOutcomeUnknown
+    from dake.services.field_decisions import FieldDecisionService
+    from dake.services.queries import QueryService
+    from offline_http import TestClient
+    from test_field_decisions import FieldsProvider, RESOURCE, change as field_change, proposal
+    from dake.analysis.field_changes import field_key
+
+    first = replace(case.first, content="虚构申请R目标2000，请继续办理")
+    anchor = replace(first, message_id=uuid4().hex, content="虚构申请R已经受理", sent_at=first.sent_at.replace(hour=8))
+    initial = proposal(first, [field_change(first)])
+    initial["evidence_ids"].append(anchor.key)
+    initial["changes"].append(dict(kind="progress", text=anchor.content,
+        evidence=[dict(message_id=anchor.key, quote=anchor.content)], replaces=None))
+    provider = FieldsProvider({first.message_id: initial})
+    provider.name = "stub-v1"
+    case.service.provider = provider
+    case.source.messages = [first, anchor]
+    initial_result = case.service.run_window(case.uid, window(1))
+    event_id = initial_result.created[0]
+    initial_receipt = case.latest()["receipt"]
+    queries = QueryService(case.settings, attempts=case.attempts)
+    app = create_app(case.settings, query_service=queries, start_worker=False, runner=object(),
+                     run_repository=SimpleNamespace(init_schema=lambda: None))
+    path = f"/api/v1/events/{event_id}"
+
+    def request(version, operation, actions):
+        return dict(uid=case.uid, stream="stub-v1", expected_version=version, operation_id=operation,
+                    operator="虚构操作人", reason="合成实库裁定", actions=actions)
+
+    with TestClient(app) as client:
+        current = client.get(path, params=dict(uid=case.uid, stream="stub-v1")).json()
+        locked = client.post(path + "/field-decisions", json=request(current["version"], "lock",
+            [dict(target=RESOURCE, action="confirm"), dict(target=RESOURCE, action="lock")]))
+        assert locked.status_code == 200
+        fact_id = locked.json()["field_states"][field_key(RESOURCE)]["adopted_ids"][0]
+        old_snapshot = deepcopy(locked.json()["updated_by"][0]["snapshot"])
+        revised = replace(first, content="虚构申请R目标200，之前多写一个零；本次办理继续")
+        case.source.messages = [revised, anchor]
+        provider.mapping[first.message_id] = proposal(revised,
+            [field_change(revised, value="200", intent="correction", replaces=[fact_id])], action="update",
+            event_id=event_id, old_message=anchor, changes=[dict(kind="progress", text="本次办理继续",
+                evidence=[dict(message_id=revised.key, quote="本次办理继续")], replaces=None)])
+        started, release = ThreadEvent(), ThreadEvent()
+        extract = provider.extract
+
+        def paused(*args):
+            started.set()
+            assert release.wait(5)
+            return extract(*args)
+
+        provider.extract = paused
+        outcomes = []
+        errors = []
+
+        def automatic():
+            try:
+                outcomes.append(case.service.run_window(case.uid, window(2)))
+            except BaseException as error:
+                errors.append(type(error).__name__)
+
+        thread = Thread(target=automatic)
+        thread.start()
+        assert started.wait(5)
+        posted = []
+        stale = Thread(target=lambda: posted.append(client.post(path + "/field-decisions", json=request(
+            locked.json()["version"], "stale-concurrent", [dict(target=RESOURCE, action="unlock")]))))
+        stale.start()
+        release.set()
+        thread.join(8)
+        stale.join(8)
+        assert not thread.is_alive() and not stale.is_alive() and not errors
+        assert posted[0].status_code == 409 and outcomes[0].updated == [event_id]
+        current = client.get(path, params=dict(uid=case.uid, stream="stub-v1")).json()
+        state = current["field_states"][field_key(RESOURCE)]
+        assert current["typed_attributes"]["资源需求"][RESOURCE["name"]]["value"] == "2000" and state["locked"]
+        assert current["updated_by"][0]["snapshot"] == old_snapshot
+        suggested = next(fact for fact in state["facts"] if fact["status"] == "suggested")
+        assert suggested["evidence"][0]["digest"] == revised.digest
+        assert "本次办理继续" in current["summary"]
+        before = deepcopy(current)
+        invalid = client.post(path + "/field-decisions", json=request(current["version"], "rollback", [
+            dict(target=RESOURCE, action="unknown"), dict(target=dict(kind="common", name="assignees"), action="set", value="无效类型")]))
+        assert invalid.status_code == 400
+        assert client.get(path, params=dict(uid=case.uid, stream="stub-v1")).json() == before
+        unlocked = client.post(path + "/field-decisions", json=request(current["version"], "unlock", [dict(target=RESOURCE, action="unlock")]))
+        assert unlocked.status_code == 200
+        assert unlocked.json()["typed_attributes"]["资源需求"][RESOURCE["name"]]["value"] == "2000"
+        problems = [item["id"] for item in unlocked.json()["field_issues"] if item["field_key"] == field_key(RESOURCE)]
+        adopted = client.post(path + "/field-decisions", json=request(unlocked.json()["version"], "adopt", [
+            dict(target=RESOURCE, action="adopt", fact_id=suggested["id"], issue_ids=problems)]))
+        assert adopted.status_code == 200
+        assert adopted.json()["typed_attributes"]["资源需求"][RESOURCE["name"]]["value"] == "200"
+        assert client.get(path + "/field-decisions/adopt", params=dict(uid=case.uid, stream="stub-v1")).status_code == 200
+
+        class SaveFailedQueries(QueryService):
+            @contextmanager
+            def connection(self):
+                with super().connection() as store:
+                    save = store.save_event
+
+                    def failed(event):
+                        save(event)
+                        raise StorageError("合成裁定写入后、提交前失败")
+
+                    store.save_event = failed
+                    yield store
+
+        before_failure = client.get(path, params=dict(uid=case.uid, stream="stub-v1")).json()
+        with pytest.raises(StorageError):
+            FieldDecisionService(SaveFailedQueries(case.settings)).submit(event_id, FieldDecisionRequest.model_validate(
+                request(adopted.json()["version"], "write-rollback", [dict(target=RESOURCE, action="clear")])))
+        assert client.get(path, params=dict(uid=case.uid, stream="stub-v1")).json() == before_failure
+        assert client.get(path + "/field-decisions/write-rollback", params=dict(uid=case.uid, stream="stub-v1")).status_code == 404
+
+        class AckLostQueries(QueryService):
+            @contextmanager
+            def connection(self):
+                with super().connection() as store:
+                    commit = store._conn.commit
+
+                    def lost():
+                        commit()
+                        raise pymysql.OperationalError(2013, "synthetic acknowledgement lost")
+
+                    store._conn.commit = lost
+                    yield store
+
+        service = FieldDecisionService(AckLostQueries(case.settings))
+        with pytest.raises(TransactionOutcomeUnknown):
+            service.submit(event_id, FieldDecisionRequest.model_validate(request(adopted.json()["version"], "ack-lost",
+                [dict(target=RESOURCE, action="confirm")])))
+        receipt = client.get(path + "/field-decisions/ack-lost", params=dict(uid=case.uid, stream="stub-v1"))
+        assert receipt.status_code == 200 and receipt.json()["operation_id"] == "ack-lost"
+        retried = client.post(path + "/field-decisions", json=request(adopted.json()["version"], "ack-lost",
+            [dict(target=RESOURCE, action="confirm")]))
+        assert retried.status_code == 200 and len(retried.json()["manual_operations"]) == 4
+        assert restore_receipt(case.service, initial_receipt).to_dict() == initial_result.to_dict()
+        no_messages = case.service.run_window(case.uid, window(3))
+        assert not no_messages.processed and not no_messages.updated
+        assert case.latest()["receipt"]["writes"] == []
+        assert restore_receipt(case.service, case.latest()["receipt"]).to_dict() == no_messages.to_dict()
 
 
 @pytest.mark.parametrize("failed_stage", ["input", "decision", "program_result", "commit"])

@@ -5,8 +5,10 @@ from dataclasses import asdict
 
 from ..analysis.matching import match, merge_batch
 from ..analysis.providers import Provider
-from ..analysis.updates import apply_candidate, snapshot_as_of
+from ..analysis.updates import apply_candidate, snapshot_for_cycle
+from ..domain.event_identity import followup_events, resolve_candidate
 from ..analysis.validation import validate_candidates
+from ..analysis.evidence_review import review_revised_evidence
 from ..config import REVIEW, Settings
 from ..domain.models import CycleResult, Window, parse_time
 from ..repositories.local_state import LocalState
@@ -127,6 +129,8 @@ class IncrementalService:
                 configure_validator = getattr(self.provider, "configure_candidate_validator", None)
                 if configure_validator is not None:
                     def validate_proposals(proposals):
+                        for proposal in proposals:
+                            resolve_candidate(proposal, events)
                         available = validate_candidates(proposals, pending, context)
                         human_keys = {m.key for m in eligible}
                         accepted = [c for c in proposals if human_keys.intersection(c.evidence_ids)]
@@ -134,7 +138,9 @@ class IncrementalService:
                             available=available, pending=pending, eligible=eligible, background=background,
                             result=result, settings=self.settings,
                             customer_keys={m.key for m in eligible
-                                if confirmed_sender_role(m.to_dict(), roles) == "customer"})
+                                if confirmed_sender_role(m.to_dict(), roles) == "customer"},
+                            support_keys={m.key for m in eligible
+                                if confirmed_sender_role(m.to_dict(), roles) == "internal"})
                     configure_validator(validate_proposals)
                 try:
                     candidates = self.provider.extract(eligible, auxiliary, history.events)
@@ -149,6 +155,8 @@ class IncrementalService:
             if observer is not None:
                 observe("extracted", candidates=[asdict(c) for c in candidates])
             available = validate_candidates(candidates, pending, context)
+            for candidate in candidates:
+                resolve_candidate(candidate, events)
             eligible_keys = {m.key for m in eligible}
             accepted = []
             for candidate in candidates:
@@ -173,12 +181,13 @@ class IncrementalService:
                     visible_events=history.events, available=available, pending=pending, eligible=eligible,
                     background=background, result=result, settings=self.settings, observe=observe,
                     customer_keys={m.key for m in eligible if confirmed_sender_role(m.to_dict(), roles) == "customer"},
+                    support_keys={m.key for m in eligible if confirmed_sender_role(m.to_dict(), roles) == "internal"},
                     recorder=recorder)
             # 未声明归属的可替换 Provider 使用主题匹配，正式 XHub 统一返回明确归属。
             for candidate in merge_batch([] if explicit else candidates, available, self.settings.match_window, pending_keys,
                                          self.settings.closed_statuses,
                                          {(e.type, e.topic_key) for e in events if e.closed_at is not None}):
-                old, possible_ids, uncertain = match(candidate, events, available, self.settings, pending_keys)
+                old, possible_ids, uncertain = match(candidate, followup_events(events), available, self.settings, pending_keys)
                 if uncertain:
                     blocked.update(available[key].key for key in candidate.evidence_ids)
                     result.review.append(dict(
@@ -212,6 +221,9 @@ class IncrementalService:
                     events = [updated if event.event_id == updated.event_id else event for event in events]
                     if updated.event_id not in result.updated:
                         result.updated.append(updated.event_id)
+            if pending:
+                events = review_revised_evidence(events, pending, store=self.store, window=window,
+                                                result=result, settings=self.settings)
             completed = [message for message in pending if message.key not in blocked]
             self.store.mark_processed(completed, self.stream)
             result.processed = len(completed)
@@ -221,7 +233,7 @@ class IncrementalService:
                 last_send_time=latest.sent_at.isoformat() if latest else None,
                 last_message_id=latest.message_id if latest else None,
             )
-            result.events = [snapshot for event in events if (snapshot := snapshot_as_of(event, window.end))]
+            result.events = [snapshot for event in events if (snapshot := snapshot_for_cycle(event, window.end))]
             if recorder is not None:
                 recorder.record("program_result", attributions=result.filter_audit, review=result.review,
                                 created=result.created, updated=result.updated)

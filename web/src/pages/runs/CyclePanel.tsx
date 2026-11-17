@@ -138,7 +138,9 @@ export function CyclePanel({
                       <span>
                         <strong>{item.summary}</strong>
                         <small>
-                          {item.type}
+                          {(item.types?.length ? item.types : [item.type]).join(
+                            '、',
+                          )}
                           <span>·</span>
                           {item.evidence.length} 条证据
                         </small>

@@ -20,6 +20,11 @@ from panel_preview import create_preview
 from test_attribution import candidate, message, window
 from test_execution_mysql import case, explicit_isolation
 from test_summary_history import change
+from identity_mysql_cases import (
+    test_identity_real_atomic_http_alias_followup_and_both_receipts,
+    test_identity_real_second_save_rollback_and_retry,
+    test_identity_real_receipt_waits_for_customer_lock_and_sees_atomic_commit,
+)
 
 
 pytestmark = pytest.mark.isolated_mysql

@@ -702,7 +702,7 @@ def test_late_validation_enters_single_repair_without_preflight_writes(tmp_path,
 
 
 def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_path):
-    """字段原文另在同批一条消息时补齐事实记录，不能丢字段或额外请求模型。"""
+    """独立字段引文进入事实记录，不依赖摘要复述，也不额外请求模型。"""
     service, attempts, store, source, _, first = setup(tmp_path)
     settings = replace(service.settings, provider="xhub")
     follow = message("follow", 2, "虚构工单今天完成初步排查，仍需验证。")
@@ -718,8 +718,10 @@ def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_p
                 basis=[dict(message_id=follow.key, quote=follow.content), dict(message_id=first.key, quote=first.content)]))
             item = payload["candidates"][0]
             item["evidence_ids"].append(detail.key)
-            item["attributes"] = [dict(name="测试环境", value="合成集群甲", quote=detail.content,
-                                       evidence_ids=[detail.key])]
+            item["field_updates"] = [dict(target=dict(kind="attribute", type_label="排障", name="异常对象与环境"),
+                ref="environment", value="合成集群甲", stage="本轮排查", scope="虚构工单", business_time=None,
+                time_kind="unknown", intent="supplement", replaces=[], reason="合成环境直接依据",
+                evidence=[dict(message_id=detail.key, quote=detail.content)])]
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
             "content": json.dumps(payload)}}]})
 
@@ -732,13 +734,14 @@ def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_p
         result = service.run_window(UID, window(2))
         assert result.updated == [target] and len(calls) == 2
         event = store.events[target]
-        assert event.attributes["测试环境"] == "合成集群甲"
-        assert follow.content in event.summary and detail.content in event.summary
+        assert event.attributes["异常对象与环境"] == "合成集群甲"
+        assert follow.content in event.summary and detail.content not in event.summary
+        assert {item["message_id"] for item in event.evidence} >= {follow.message_id, detail.message_id}
         assert len(event.updated_by) == 2
         changes = event.updated_by[-1]["changes"]
-        assert changes[-1]["text"] == changes[-1]["evidence"][0]["quote"] == detail.content
+        assert changes[-1]["text"] == changes[-1]["evidence"][0]["quote"] == follow.content
         saved = stage(last(attempts), "model_completed")
-        assert saved["normalizations"][0]["reason"] == "verified_current_field_quote"
+        assert saved["normalizations"] == []
         assert len(json.loads(provider.traces[-1]["output"])["candidates"][0]["changes"]) == 1
         assert last(attempts)["outcome"] == "committed"
         assert len(last(attempts)["receipt"]["processed_versions"]) == 2

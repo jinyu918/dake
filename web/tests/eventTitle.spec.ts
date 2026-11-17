@@ -7,6 +7,7 @@ import {
   revisionHeadline,
   sortRevisions,
 } from '../src/pages/events/eventTitle';
+import { revisionDefaults } from './fieldDefaults';
 
 const legacyRevisionFields = {
   revision_no: null,
@@ -16,6 +17,7 @@ const legacyRevisionFields = {
   summary_changed: null,
   changed_fields: [],
   changes: [],
+  ...revisionDefaults,
   policy_version: null,
 };
 
@@ -58,6 +60,13 @@ test('变化历史区分摘要更新、确认、纠正和证据补充', () => {
       summary_changed: true,
     }),
   ).toBe('结论更正');
+  expect(
+    revisionHeadline({
+      ...base,
+      change_kind: 'classification',
+      summary_changed: false,
+    }),
+  ).toBe('分类依据更新');
   expect(
     revisionHeadline({
       ...base,

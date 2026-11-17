@@ -9,6 +9,7 @@ import {
 } from '../src/pages/events/changeTimeline';
 import { ChangesContent } from '../src/pages/events/EventChangesDrawer';
 import { SavedChanges } from '../src/pages/events/SavedChanges';
+import { fieldDefaults, revisionDefaults } from './fieldDefaults';
 
 /** 全部消息、摘要及身份均为虚构，不读取任何聊天夹具或服务。 */
 function proof(id: string, time: string, text: string): API.ChangeEvidence {
@@ -19,6 +20,7 @@ function proof(id: string, time: string, text: string): API.ChangeEvidence {
     conversation_id: 'synthetic-room',
     send_time: time,
     quote: text,
+    evidence_status: null,
   };
 }
 
@@ -34,6 +36,7 @@ function evidence(ref: API.ChangeEvidence): API.EvidenceResponse {
     internal_hint: null,
     sender_role: 'unknown',
     sender_kind: 'unknown',
+    origin_event_id: null,
   };
 }
 
@@ -54,10 +57,17 @@ function fixture(): API.EventChangesResponse {
     '虚构补充原截图证据。',
   );
   const one: API.EventSnapshot = {
+    ...fieldDefaults,
     event_id: 'synthetic-event',
     uid: 'synthetic-customer',
     stream: 'synthetic-stream',
     type: '排障',
+    types: ['排障'],
+    type_evidence: {},
+    removed_types: {},
+    classification_evidence_status: '未记录',
+    classification_status: '已分类',
+    other_reason: null,
     topic_key: '虚构报告上传',
     start_time: first.send_time,
     end_time: first.send_time,
@@ -68,6 +78,7 @@ function fixture(): API.EventChangesResponse {
     evidence: [evidence(first)],
     assignees: [],
     attributes: {},
+    typed_attributes: {},
     extensions: {},
     review_flag: null,
     closed_at: null,
@@ -109,6 +120,7 @@ function fixture(): API.EventChangesResponse {
           evidence: [ref],
         },
       ],
+      ...revisionDefaults,
       policy_version: 'synthetic-policy',
     };
   }
@@ -197,6 +209,43 @@ test('跨天主列表按触发消息到分钟，直接给引文、事实和摘�
   expect(rows.some((row) => row.day === '2038-07-01')).toBe(false);
 });
 
+test('增量面板保留人工操作和字段采用记录，不把操作显示为聊天触发', () => {
+  const data = fixture();
+  const revision = data.revisions[1];
+  if (!revision.snapshot) throw new Error('合成快照缺失');
+  revision.source = 'manual';
+  revision.recorded_at = '2038-07-02T14:05:00+08:00';
+  revision.changes = [];
+  revision.changed_fields = ['field_states'];
+  revision.manual_operation = {
+    operator: '虚构复核员',
+    reason: '虚构字段采用理由',
+    decided_at: revision.recorded_at,
+  };
+  revision.snapshot.field_states = {
+    'common::status': {
+      target: { kind: 'common', name: 'status' },
+      facts: [],
+      adopted_ids: [],
+      locked_ids: [],
+      locked: true,
+      archived: false,
+      decision: revision.manual_operation,
+    },
+  };
+  data.revisions = [revision];
+  const markup = renderToStaticMarkup(createElement(SavedChanges, { data }));
+  expect(markup).toContain('class="change-delta"');
+  expect(markup).toContain('完整摘要对比');
+  expect(markup).toContain('2038-07-02');
+  expect(markup).toContain('人工操作');
+  expect(markup).toContain('虚构复核员');
+  expect(markup).toContain('虚构字段采用理由');
+  expect(markup).toContain('字段事实与人工裁定');
+  expect(markup).toContain('跟进状态 · 已锁定');
+  expect(markup).not.toContain('<summary>触发消息 ·');
+});
+
 test('仅补证据明确标注，进展确认即使摘要不变也不误标为仅补证据', () => {
   const data = fixture();
   expect(savedChanges(data)[0].evidenceOnly).toBe(true);
@@ -249,6 +298,29 @@ test('仅候选、无变化、仅恢复重试、程序拟变化均不产生主�
   ).not.toContain('虚构尚未保存的摘要');
   data.revisions.push({ ...data.revisions[2], revision_no: 4, changes: [] });
   expect(savedChanges(data)).toHaveLength(3);
+});
+
+test('仅分类依据更新有独立标题且不会因摘要和事项证据未变而消失', () => {
+  const data = fixture();
+  const current = data.revisions[2];
+  const previous = data.revisions[1].snapshot;
+  if (!previous) throw new Error('合成前版缺失');
+  current.change_kind = 'classification';
+  current.changes = [];
+  current.message_ids = [];
+  current.changed_fields = ['type_evidence'];
+  current.snapshot = {
+    ...previous,
+    type_evidence: {
+      排障: [{ evidence_ids: ['synthetic:follow'], quote: '虚构排查依据' }],
+    },
+  };
+  const row = savedChanges(data).find(
+    (item) => item.revision.change_kind === 'classification',
+  );
+  expect(row?.title).toBe('分类依据更新');
+  expect(row?.descriptions).toEqual(['分类依据已更新。']);
+  expect(row?.evidenceOnly).toBe(false);
 });
 
 test('缺失原快照与触发正文显示未记录，不借当前摘要或模型建议补造', () => {

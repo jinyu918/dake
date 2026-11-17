@@ -14,7 +14,7 @@ export function SavedChanges({ data }: { data: API.EventChangesResponse }) {
     <section className="saved-changes" aria-label="已保存的事件变化">
       <h3>已保存的事件变化 · {rows.length} 条</h3>
       <p className="change-muted">
-        按最后一条触发消息的上海时间分日展示，精确到分钟；保存时间见详情。
+        自动变化按最后一条触发消息、人工裁定按操作时间分日展示，使用上海时间，精确到分钟。
       </p>
       <button
         type="button"
@@ -67,35 +67,55 @@ export function SavedChanges({ data }: { data: API.EventChangesResponse }) {
                         : `状态：${row.previous.status} → ${row.revision.snapshot.status}`}
                     </p>
                   ) : null}
-                  <details className="saved-change-details">
-                    <summary>触发消息 · {row.triggers.length} 条</summary>
-                    {row.triggers.length ? (
-                      row.triggers.map((ref) => (
-                        <blockquote
-                          className="change-proof"
-                          key={JSON.stringify([
-                            ref.source,
-                            ref.message_id,
-                            ref.digest,
-                          ])}
-                        >
-                          <ExpandableText
-                            lines={4}
-                            text={ref.quote || ''}
-                            empty="触发消息正文未记录"
-                          />
-                          <small>
-                            {ref.send_time
-                              ? formatTime(ref.send_time)
-                              : '消息时间未记录'}{' '}
-                            · 消息 {ref.message_id || '未记录'}
-                          </small>
-                        </blockquote>
-                      ))
-                    ) : (
-                      <p>触发消息未记录。</p>
-                    )}
-                  </details>
+                  {row.revision.source === 'manual' ? (
+                    <div>
+                      <h5>人工操作</h5>
+                      {row.revision.manual_operation ? (
+                        <p>
+                          操作人（本地填写）：
+                          {String(row.revision.manual_operation.operator)} · 理由：
+                          {String(row.revision.manual_operation.reason)}
+                          <br />
+                          裁定时间：
+                          {formatTime(
+                            String(row.revision.manual_operation.decided_at),
+                          )}
+                        </p>
+                      ) : (
+                        <p>人工操作详情未记录。</p>
+                      )}
+                    </div>
+                  ) : (
+                    <details className="saved-change-details">
+                      <summary>触发消息 · {row.triggers.length} 条</summary>
+                      {row.triggers.length ? (
+                        row.triggers.map((ref) => (
+                          <blockquote
+                            className="change-proof"
+                            key={JSON.stringify([
+                              ref.source,
+                              ref.message_id,
+                              ref.digest,
+                            ])}
+                          >
+                            <ExpandableText
+                              lines={4}
+                              text={ref.quote || ''}
+                              empty="触发消息正文未记录"
+                            />
+                            <small>
+                              {ref.send_time
+                                ? formatTime(ref.send_time)
+                                : '消息时间未记录'}{' '}
+                              · 消息 {ref.message_id || '未记录'}
+                            </small>
+                          </blockquote>
+                        ))
+                      ) : (
+                        <p>触发消息未记录。</p>
+                      )}
+                    </details>
+                  )}
                   <p className="change-muted">
                     版本 {row.revision.revision_no ?? '未记录'} · 记录时间{' '}
                     {row.revision.recorded_at

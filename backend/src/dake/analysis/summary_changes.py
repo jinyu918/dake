@@ -55,6 +55,8 @@ def complete_field_changes(candidate, available, eligible_keys):
     facts = [(name, extracted.get(name)) for name in ("status", "severity")]
     facts += [(f"{name}[{index}]", fact) for name in ("assignees", "attributes", "extensions")
               for index, fact in enumerate(extracted.get(name, []))]
+    facts += [(f"typed_attributes[{fact['type_label']}][{fact['name']}]", fact)
+              for fact in extracted.get("typed_attributes", [])]
     normalized = []
     for path, fact in facts:
         if not fact:
@@ -111,6 +113,8 @@ def validate_changes(candidate, available, eligible_keys):
     facts = [(name, extracted.get(name)) for name in ("status", "severity")]
     facts += [(f"{name}[{index}]", fact) for name in ("assignees", "attributes", "extensions")
               for index, fact in enumerate(extracted.get(name, []))]
+    facts += [(f"typed_attributes[{fact['type_label']}][{fact['name']}]", fact)
+              for fact in extracted.get("typed_attributes", [])]
     unsupported = [path for path, fact in facts
                    if fact and (not fact["evidence_ids"] or not set(fact["evidence_ids"]).issubset(refs)
                        or not any(key in available and fact["quote"] in available[key].content
@@ -126,7 +130,27 @@ def validate_changes(candidate, available, eligible_keys):
             "确有本轮新事实时补充对应 changes 及其逐字引文；不得编造事实来凑齐引用。")
 
 
-def prepare_summary(candidate, event, available, *, historical=False, keep_facts=False):
+def field_only_corrections(candidate, previous_attributes, summary) -> dict[int, set[str]]:
+    corrections: dict[int, set[str]] = {}
+    for label, attrs in candidate.typed_attributes.items():
+        for name, fact in attrs.items():
+            previous = previous_attributes.get(label, {}).get(name, {}).get("value")
+            value, quote = fact["value"], fact["quote"]
+            if not previous or previous == value or previous in summary:
+                continue
+            for index, change in enumerate(candidate.changes or []):
+                if (change["kind"] == "correction" and previous in (change["replaces"] or "")
+                        and value in change["text"] and any(
+                            ref["message_id"] in fact["evidence_ids"]
+                            and previous in ref["quote"] and value in ref["quote"]
+                            and (quote in ref["quote"] or ref["quote"] in quote)
+                            for ref in change["evidence"])):
+                    corrections.setdefault(index, set()).add(previous)
+    return corrections
+
+
+def prepare_summary(candidate, event, available, *, historical=False, keep_facts=False,
+                    field_corrections: dict[int, set[str]] | None = None):
     """应用有依据的局部修改；不同进展的替换冲突时失败，不按最后一条静默覆盖。"""
     base = event.summary if event is not None else candidate.summary
     field_change = event is not None and (any(
@@ -134,8 +158,11 @@ def prepare_summary(candidate, event, available, *, historical=False, keep_facts
         for name in ("status", "severity")) or
         bool(candidate.assignees and candidate.assignees != event.assignees) or
         any(event.attributes.get(key) != value for key, value in candidate.attributes.items()))
+    field_change = field_change or (event is not None and any(
+        event.typed_attributes.get(label, {}).get(name, {}).get("value") != fact["value"]
+        for label, attrs in candidate.typed_attributes.items() for name, fact in attrs.items()))
     records, seen, replacements, additions = [], set(), [], []
-    for raw in candidate.changes:
+    for index, raw in enumerate(candidate.changes):
         change = deepcopy(raw)
         evidence = []
         for ref in change["evidence"]:
@@ -163,13 +190,22 @@ def prepare_summary(candidate, event, available, *, historical=False, keep_facts
                 if replaced.strip() == base.strip():
                     raise ContractError("摘要只允许局部修改，不能整段覆盖旧摘要")
                 if base.count(replaced) != 1:
-                    raise ContractError("被替换的摘要片段不存在或不能唯一定位")
-                start, stop = base.index(replaced), base.index(replaced) + len(replaced)
-                if any(start < end and left < stop for left, end, _ in replacements):
-                    raise ContractError("同一批摘要修改片段冲突，需要明确后再处理")
-                if replaced == text:
-                    continue
-                replacements.append((start, stop, text))
+                    occurrences = sum(value.count(replaced) for value in additions)
+                    corrected_values = (field_corrections or {}).get(index, set())
+                    field_only = bool(corrected_values) and not any(
+                        value in planned_text for value in corrected_values
+                        for planned_text in [*additions, *(replacement[2] for replacement in replacements)])
+                    if (change["kind"] != "correction" or replaced in base or
+                            (occurrences != 1 and not (occurrences == 0 and field_only))):
+                        raise ContractError("被替换的摘要片段不存在或不能唯一定位")
+                    additions = [value.replace(replaced, text) for value in additions]
+                else:
+                    start, stop = base.index(replaced), base.index(replaced) + len(replaced)
+                    if any(start < end and left < stop for left, end, _ in replacements):
+                        raise ContractError("同一批摘要修改片段冲突，需要明确后再处理")
+                    if replaced == text:
+                        continue
+                    replacements.append((start, stop, text))
             elif text not in base:
                 additions.append(text)
         change["text"] = text
@@ -182,6 +218,15 @@ def prepare_summary(candidate, event, available, *, historical=False, keep_facts
         if text not in summary:
             summary = summary.rstrip() + "\n" + text
     return summary, records
+
+
+def explicitly_corrects_typed_attribute(candidate, fact):
+    """只接受与字段直接证据同源、且明确写出新值的纠正变化。"""
+    evidence_ids = set(fact.get("evidence_ids", []))
+    return any(change.get("kind") == "correction"
+               and fact.get("value") in change.get("text", "")
+               and evidence_ids.intersection(ref["message_id"] for ref in change.get("evidence", []))
+               for change in candidate.changes or [])
 
 
 def restrict_fields(candidate, event, changes, available):
@@ -199,9 +244,20 @@ def restrict_fields(candidate, event, changes, available):
         return bool(refs) and set(refs).issubset(active) and max(available[key].sent_at for key in refs) >= event.end_time
 
     attributes = {fact["name"]: fact for fact in extracted.get("attributes", [])}
+    typed_names = {name for facts in candidate.typed_attributes.values() for name in facts}
+    supported_typed_names = {name for label, facts in candidate.typed_attributes.items()
+                             for name, fact in facts.items() if supported(fact)}
+    typed_attributes = {
+        label: {name: fact for name, fact in facts.items() if supported(fact)}
+        for label, facts in candidate.typed_attributes.items()
+    }
     return replace(candidate,
         status=candidate.status if supported(extracted.get("status")) else None,
         severity=candidate.severity if supported(extracted.get("severity")) else None,
         assignees=candidate.assignees if active and all(supported(fact) for fact in extracted.get("assignees", [])) else [],
-        attributes={key: value for key, value in candidate.attributes.items() if supported(attributes.get(key))},
+        attributes={key: value for key, value in candidate.attributes.items()
+                    if (supported(attributes[key]) if key in attributes else
+                        key in supported_typed_names if key in typed_names else bool(active))},
+        typed_attributes={label: facts for label, facts in typed_attributes.items()
+                          if (label not in candidate.removed_types or label in candidate.label_types()) and facts},
         extensions=candidate.extensions if active else {})
