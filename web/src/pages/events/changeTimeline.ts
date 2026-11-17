@@ -171,16 +171,16 @@ export function savedChanges(data: API.EventChangesResponse) {
             revision.action === 'created'
               ? '新建事件'
               : evidenceOnly
-                  ? '仅补证据'
-                  : revision.change_kind === 'confirmation'
-                    ? '进展确认'
-                    : revision.change_kind === 'correction'
-                      ? '结论更正'
-                      : revision.change_kind === 'progress'
-                        ? '事件进展'
-                        : revision.change_kind === 'classification'
-                          ? '分类依据更新'
-                          : '已保存修订',
+                ? '仅补证据'
+                : revision.change_kind === 'confirmation'
+                  ? '进展确认'
+                  : revision.change_kind === 'correction'
+                    ? '结论更正'
+                    : revision.change_kind === 'progress'
+                      ? '事件进展'
+                      : revision.change_kind === 'classification'
+                        ? '分类依据更新'
+                        : '已保存修订',
         },
       ];
     })

@@ -45,7 +45,9 @@ export function FieldFacts({
                   <blockquote
                     key={`${evidence.source}:${evidence.message_id}:${evidence.digest || ''}:${evidence.quote || ''}`}
                   >
-                    {evidence.evidence_status === 'superseded' ? '旧依据：' : ''}
+                    {evidence.evidence_status === 'superseded'
+                      ? '旧依据：'
+                      : ''}
                     {evidence.quote || '引文未记录'}
                   </blockquote>
                 ))}

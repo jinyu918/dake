@@ -68,33 +68,33 @@ export function SavedChanges({ data }: { data: API.EventChangesResponse }) {
                     </p>
                   ) : null}
                   <details className="saved-change-details">
-                      <summary>触发消息 · {row.triggers.length} 条</summary>
-                      {row.triggers.length ? (
-                        row.triggers.map((ref) => (
-                          <blockquote
-                            className="change-proof"
-                            key={JSON.stringify([
-                              ref.source,
-                              ref.message_id,
-                              ref.digest,
-                            ])}
-                          >
-                            <ExpandableText
-                              lines={4}
-                              text={ref.quote || ''}
-                              empty="触发消息正文未记录"
-                            />
-                            <small>
-                              {ref.send_time
-                                ? formatTime(ref.send_time)
-                                : '消息时间未记录'}{' '}
-                              · 消息 {ref.message_id || '未记录'}
-                            </small>
-                          </blockquote>
-                        ))
-                      ) : (
-                        <p>触发消息未记录。</p>
-                      )}
+                    <summary>触发消息 · {row.triggers.length} 条</summary>
+                    {row.triggers.length ? (
+                      row.triggers.map((ref) => (
+                        <blockquote
+                          className="change-proof"
+                          key={JSON.stringify([
+                            ref.source,
+                            ref.message_id,
+                            ref.digest,
+                          ])}
+                        >
+                          <ExpandableText
+                            lines={4}
+                            text={ref.quote || ''}
+                            empty="触发消息正文未记录"
+                          />
+                          <small>
+                            {ref.send_time
+                              ? formatTime(ref.send_time)
+                              : '消息时间未记录'}{' '}
+                            · 消息 {ref.message_id || '未记录'}
+                          </small>
+                        </blockquote>
+                      ))
+                    ) : (
+                      <p>触发消息未记录。</p>
+                    )}
                   </details>
                   <p className="change-muted">
                     版本 {row.revision.revision_no ?? '未记录'} · 记录时间{' '}

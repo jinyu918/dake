@@ -1,9 +1,5 @@
 import { getConfig } from './generated/config';
-import {
-  getEvent,
-  getEventChanges,
-  listEvents,
-} from './generated/events';
+import { getEvent, getEventChanges, listEvents } from './generated/events';
 import { createRun, getRun, listRuns } from './generated/runs';
 
 /** 页面通过生成客户端访问唯一后端契约；这里仅提供稳定、简短的业务入口。 */
