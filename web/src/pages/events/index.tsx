@@ -311,7 +311,6 @@ export default function EventsPage() {
           <EventPane
             key={JSON.stringify([uid, stream, selected.event_id])}
             event={selected}
-            onSaved={events.refresh}
           />
         ) : null}
       </div>

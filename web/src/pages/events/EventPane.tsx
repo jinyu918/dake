@@ -225,13 +225,7 @@ function sourceLine(platforms: string[], groupCount: number) {
   return parts;
 }
 
-export function EventPane({
-  event,
-  onSaved,
-}: {
-  event: API.EventResponse;
-  onSaved?: () => void;
-}) {
+export function EventPane({ event }: { event: API.EventResponse }) {
   const conversations = event.conversations || [];
   const platforms = event.platforms?.length
     ? event.platforms
