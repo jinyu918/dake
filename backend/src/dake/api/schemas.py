@@ -2,9 +2,10 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from ..domain.models import SenderKind, SenderRole
+from ..domain.models import SenderKind, SenderRole, normalize_classification
+from ..domain.fields import FieldIssue, FieldState, FieldTarget
 
 
 class APIModel(BaseModel):
@@ -37,6 +38,7 @@ class EvidenceResponse(APIModel):
     internal_hint: int | None = None
     sender_role: SenderRole = "unknown"
     sender_kind: SenderKind = "unknown"
+    origin_event_id: str | None = None
 
 
 class ConversationRef(APIModel):
@@ -55,6 +57,12 @@ class EventSnapshot(APIModel):
     uid: str
     stream: str
     type: str
+    types: list[str] = Field(default_factory=list)
+    type_evidence: dict[str, JsonValue] = Field(default_factory=dict)
+    removed_types: dict[str, JsonValue] = Field(default_factory=dict)
+    classification_evidence_status: str = "未记录"
+    classification_status: str = "已分类"
+    other_reason: JsonValue | None = None
     topic_key: str | None
     start_time: str
     end_time: str
@@ -65,12 +73,22 @@ class EventSnapshot(APIModel):
     assignees: list[str] = Field(default_factory=list)
     evidence: list[EvidenceResponse] = Field(default_factory=list)
     attributes: dict[str, JsonValue] = Field(default_factory=dict)
+    typed_attributes: dict[str, JsonValue] = Field(default_factory=dict)
+    version: int = 0
+    field_states: dict[str, FieldState] = Field(default_factory=dict)
+    field_issues: list[FieldIssue] = Field(default_factory=list)
     extensions: dict[str, JsonValue] = Field(default_factory=dict)
     review_flag: str | None = None
     closed_at: str | None = None
     recovery: "RecoveryConfirmation | None" = None
     recurrence_of: "RecurrenceLink | None" = None
+    relations: list["BusinessRelation"] = Field(default_factory=list)
     schema_version: int = 1
+
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_classification(cls, value):
+        return normalize_classification(value) if isinstance(value, dict) else value
 
 
 class ChangeEvidence(APIModel):
@@ -83,6 +101,8 @@ class ChangeEvidence(APIModel):
     send_time: str
     quote: str
 
+    evidence_status: Literal["superseded"] | None = None
+
 
 class ContinuityEvidence(ChangeEvidence):
     """恢复或再次发生的直接依据，保留当时的账号与消息版本。"""
@@ -91,9 +111,9 @@ class ContinuityEvidence(ChangeEvidence):
 
 
 class CustomerRecoveryEvidence(ContinuityEvidence):
-    """已确认客户账号的明确反馈，不采用展示身份回退。"""
+    """已确认客户或支持账号的直接反馈，不采用展示身份回退。"""
 
-    sender_role: Literal["customer"]
+    sender_role: Literal["customer", "internal"]
 
 
 class RecoveryConfirmation(APIModel):
@@ -101,8 +121,11 @@ class RecoveryConfirmation(APIModel):
 
     confirmed_at: str
     evidence: list[CustomerRecoveryEvidence]
-    identity_basis: Literal["confirmed_account"]
+    identity_basis: Literal["confirmed_account", "confirmed_support_account"]
     policy_version: str
+    review_status: Literal["confirmed", "pending"] = "confirmed"
+    supporting_evidence: list[CustomerRecoveryEvidence] = Field(default_factory=list)
+    scope: str | None = None
 
 
 class RecurrenceLink(APIModel):
@@ -113,6 +136,21 @@ class RecurrenceLink(APIModel):
     recovery: RecoveryConfirmation
     evidence: list[ContinuityEvidence]
     policy_version: str
+    review_status: Literal["confirmed", "pending", "retracted"] = "confirmed"
+    review_reason: str | None = None
+    retraction_evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
+    retracted_by: str | None = None
+
+
+class BusinessRelation(APIModel):
+    kind: Literal["based_on", "caused_by"]
+    event_id: str
+    reason: str
+    evidence: list[ChangeEvidence]
+    review_status: Literal["confirmed", "pending", "retracted"]
+    review_reason: str | None = None
+    retraction_evidence: list[ChangeEvidence] = Field(default_factory=list)
+    origin_event_id: str | None = None
 
 
 class EventChange(APIModel):
@@ -135,7 +173,8 @@ class EventRevision(APIModel):
     snapshot: EventSnapshot | None = None
     revision_no: int | None = Field(default=None, ge=1)
     recorded_at: str | None = None
-    change_kind: Literal["created", "progress", "confirmation", "correction", "evidence_only"] | None = None
+    change_kind: Literal["created", "progress", "confirmation", "correction", "evidence_only", "classification"] | None = None
+    source: Literal["automatic"] = "automatic"
     change_summary: str | None = None
     summary_changed: bool | None = None
     changed_fields: list[str] = Field(default_factory=list)
@@ -409,6 +448,7 @@ class CustomerResponse(APIModel):
 class ConfigResponse(APIModel):
     """界面可见配置；不返回数据库密码、连接串或内部取数响应。"""
 
+    field_targets: list[FieldTarget] = Field(default_factory=list)
     uid: str
     start: str
     end: str

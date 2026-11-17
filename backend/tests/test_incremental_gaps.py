@@ -98,6 +98,8 @@ def test_explicit_new_decision_keeps_same_topic_incidents_separate(tmp_path, ope
         "evidence_ids": [follow.key], "status": None, "severity": None,
         "assignees": [], "attributes": [], "extensions": [], "decision": "new",
         "referenced_event_id": None, "decision_reason": "虚构工单不同，明确要求独立记录。",
+        "type_labels": [{"type": "排障", "evidence_ids": [follow.key], "quote": follow.content}],
+        "removed_types": [], "typed_attributes": [], "classification_status": "已分类", "other_reason": None,
         "basis": [{"message_id": follow.key, "quote": follow.content}], "possible_event_ids": [], "continuity": None,
         "changes": [{"kind": "progress", "text": follow.content, "replaces": None,
                      "evidence": [{"message_id": follow.key, "quote": follow.content}]}],

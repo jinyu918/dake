@@ -1,5 +1,14 @@
+import { FieldFacts } from '@/components/FieldDecisions';
 import { formatTime } from '@/lib/utils';
 import { evidenceKey, revisionEvidence } from './revisionEvidence';
+
+function recoveryLabel(value: API.RecoveryConfirmation | null | undefined) {
+  if (!value) return '无恢复记录';
+  if (value.review_status === 'pending') return '恢复依据待核实';
+  return value.identity_basis === 'confirmed_support_account'
+    ? `支持方核验：${value.scope || '范围未记录'}，客户验收未确认`
+    : '客户已确认';
+}
 
 /** 每条引文只展示保存当时的来源和版本，不拿现有聊天替换。 */
 export function Proof({
@@ -175,22 +184,23 @@ export function VersionDifference({
             ) : (
               <p>未记录</p>
             )}
-            <p>
-              单个状态字段与引文的精确对应未单独记录；以上为本版保存的依据。
-            </p>
+            {!(after && Object.keys(after.field_states).length) ? (
+              <p>
+                单个状态字段与引文的精确对应未单独记录；以上为本版保存的依据。
+              </p>
+            ) : null}
           </details>
         </>
+      ) : null}
+      {after && Object.keys(after.field_states).length ? (
+        <FieldFacts event={after} />
       ) : null}
       <details>
         <summary>客户恢复与复发关系</summary>
         <p>
           恢复确认：
-          {previous
-            ? previous.recovery
-              ? '客户已确认'
-              : '无确认记录'
-            : beforeLabel}{' '}
-          → {after ? (after.recovery ? '客户已确认' : '无确认记录') : '未记录'}
+          {previous ? recoveryLabel(previous.recovery) : beforeLabel} →{' '}
+          {after ? recoveryLabel(after.recovery) : '未记录'}
         </p>
         {previous?.recovery &&
         JSON.stringify(previous.recovery) !==
@@ -226,6 +236,9 @@ export function VersionDifference({
         {after?.recurrence_of ? (
           <>
             <p>{after.recurrence_of.reason}</p>
+            {after.recurrence_of.review_status === 'pending' ? (
+              <p>前后发生轮次待核对：{after.recurrence_of.review_reason}</p>
+            ) : null}
             <Proofs
               items={after.recurrence_of.evidence.map((ref) => ({
                 ...ref,

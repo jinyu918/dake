@@ -135,6 +135,21 @@
 .attributes > div { display: grid; grid-template-columns: 100px 1fr; font-size: 11px; }
 .attributes dt { color: #a1a1aa; }
 .attributes dd { color: #777780; overflow-wrap: anywhere; }
+.classification-details { margin-top: 18px; }
+.classification-details > h3 { margin: 20px 0 10px; font-size: 12px; font-weight: 600; color: #71717a; }
+.classification-status, .classification-no-evidence { color: #a1a1aa; font-size: 11px; line-height: 1.6; }
+.classification-labels { display: flex; flex-wrap: wrap; gap: 7px; }
+.classification-label-detail { margin-top: 15px; padding-top: 12px; border-top: 1px solid #f0f0f2; }
+.classification-label-detail h4 { margin-bottom: 9px; color: #71717a; font-size: 11px; font-weight: 500; }
+.classification-label-detail > p { margin-bottom: 7px; color: #777780; font-size: 11px; }
+.classification-fact-evidence { margin-top: 6px; color: #92929d; font-size: 10px; }
+.classification-fact-evidence blockquote { padding-left: 8px; border-left: 2px solid #e4e4e7; color: #777780; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.classification-message-refs { display: inline-flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 4px; color: #a1a1aa; font-size: 9px; }
+.classification-attributes { display: grid; gap: 10px; margin-top: 12px; }
+.classification-attributes > div { display: grid; grid-template-columns: minmax(88px, 35%) minmax(0, 1fr); gap: 8px; font-size: 11px; }
+.classification-attributes dt { color: #a1a1aa; }
+.classification-attributes dd { margin: 0; color: #52525b; overflow-wrap: anywhere; }
+.classification-removed-type { margin-top: 8px; color: #777780; font-size: 11px; }
 .evidence { background: #fafafb; border: 1px solid #efeff2; border-radius: 7px; padding: 15px 17px; margin-bottom: 11px; }
 .evidence blockquote { color: #777780; font-size: 12px; line-height: 1.9; white-space: pre-wrap; overflow-wrap: anywhere; }
 .evidence > div { display: flex; justify-content: space-between; gap: 9px; margin-top: 12px; color: #b1b1b9; font-size: 9px; flex-wrap: wrap; }
@@ -477,6 +492,7 @@ body:has(.events-workspace) { overflow: hidden; }
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
   min-width: 0;
   margin-top: 4px;
   font-size: 11px;
@@ -811,3 +827,14 @@ select:focus, select:focus-visible { outline: none; border-color: #d4d4d8; box-s
 .time-filter-popover footer > div { display: flex; gap: 8px; }
 .time-filter-popover [role="alert"] { color: #b91c1c; }
 .time-filter-popover button:focus-visible, .time-filter-trigger:focus-visible { outline: 2px solid #a89755; outline-offset: 2px; }
+.field-facts { margin: 20px 0; font-size: 13px; }
+.field-facts > details { padding: 10px 0; border-bottom: 1px solid #e9e5dd; }
+.field-facts summary { cursor: pointer; }
+.field-fact { margin: 10px 0; padding: 10px; background: #faf9f6; border-radius: 6px; }
+.field-fact p { margin: 6px 0; }
+.field-fact blockquote { padding-left: 10px; border-left: 2px solid #ded8ca; }
+.field-fact code { overflow-wrap: anywhere; font-size: 11px; }
+.field-decision-dialog { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(640px, calc(100vw - 32px)); max-height: 90vh; overflow-y: auto; padding: 28px; border-radius: 12px; }
+.field-decision-dialog form { display: grid; gap: 12px; }
+.field-decision-dialog textarea { width: 100%; min-height: 70px; padding: 10px; border: 1px solid #e5e5ea; border-radius: 7px; font-size: 13px; }
+.field-decision-actions { display: flex; flex-wrap: wrap; gap: 8px; }

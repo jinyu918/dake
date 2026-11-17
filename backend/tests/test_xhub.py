@@ -1,6 +1,7 @@
 """真实 Provider 使用合成夹具验证授权开关、处理流、任务冻结和私有记录。"""
 
 from dataclasses import replace
+from datetime import timedelta
 import json
 import stat
 
@@ -12,8 +13,45 @@ from dake.config import Settings
 from dake.jobs.runner import prepare_request
 from dake.services.queries import QueryService
 from dake.services.enrich import enrich_evidence
+from dake.services.history_retrieval import HistoryRetriever
+from fakes import MemoryStore
 from provider_fakes import candidate, message, output, response
 from test_runs import execute_next, run_fixture
+
+
+@pytest.mark.parametrize("formal", [False, True])
+def test_gateway_strict_schema_requires_every_property_recursively(tmp_path, formal):
+    settings = replace(Settings(), provider="xhub", uid="synthetic-authorized", data_dir=tmp_path)
+    msg = replace(message(), uid=settings.uid)
+
+    def check_schema(value):
+        if isinstance(value, dict):
+            if value.get("type") == "object":
+                assert value["additionalProperties"] is False
+                assert set(value.get("required", [])) == set(value.get("properties", {}))
+            for nested in value.values():
+                check_schema(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                check_schema(nested)
+
+    def reply(request):
+        body = json.loads(request.content)
+        check_schema(body["response_format"]["json_schema"]["schema"])
+        return response(json.dumps(dict(schema_version="5.0" if formal else "1.0", candidates=[])))
+
+    client = XHubProvider(XHubConfig(model=settings.llm_model, api_key="synthetic-key",
+                                   max_tokens=settings.llm_max_tokens), settings,
+                          transport=httpx.MockTransport(reply))
+    try:
+        if formal:
+            history = HistoryRetriever(MemoryStore(), settings.history_retrieval).retrieve(
+                settings.uid, client.name, [msg], msg.sent_at + timedelta(minutes=5))
+            client.configure_history_retrieval(history)
+        assert client.extract([msg], [], []) == []
+        assert client.name == configured_stream(settings)
+    finally:
+        client.close()
 
 
 def test_official_provider_uses_same_contract_and_private_trace(tmp_path):

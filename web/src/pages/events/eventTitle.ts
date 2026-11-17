@@ -155,6 +155,7 @@ export function revisionHeadline(revision: {
   if (revision.change_kind === 'evidence_only') return '证据补充';
   if (revision.change_kind === 'confirmation') return '进展确认';
   if (revision.change_kind === 'correction') return '结论更正';
+  if (revision.change_kind === 'classification') return '分类依据更新';
   if (revision.summary_changed) return '摘要更新';
   if (revision.change_kind === 'progress') return '事件更新';
   if (revision.message_ids.length) return '新增证据';

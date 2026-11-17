@@ -1,4 +1,4 @@
-import { EventType } from '@/components/EventType';
+import { ClassificationDetails } from '@/components/ClassificationDetails';
 import { formatTime } from '@/lib/utils';
 import { ChatMessage } from './ChatMessage';
 import { ExpandableText } from './ExpandableText';
@@ -24,6 +24,9 @@ function ContinuityEvidence({ items }: { items: API.ContinuityEvidence[] }) {
           key={`${ref.source}-${ref.message_id}-${ref.digest}-${ref.quote}`}
         >
           <p>{ref.quote}</p>
+          {ref.evidence_status === 'superseded' ? (
+            <p className="notice-warning">旧依据已修订，仅供历史核对。</p>
+          ) : null}
           <small>
             {formatTime(ref.send_time)} · 群 {ref.conversation_id || '未记录'}
             {' · '}消息 {ref.message_id} · 账号 {ref.sender_id}
@@ -49,14 +52,34 @@ function RecoveryDetails({ event }: { event: API.EventResponse }) {
       <h3 id="event-recovery">恢复与复发</h3>
       {recovery ? (
         <details className="aside-update-facts">
-          <summary>客户已明确确认恢复</summary>
+          <summary>
+            {recovery.review_status === 'pending'
+              ? '恢复依据待核实'
+              : recovery.identity_basis === 'confirmed_support_account'
+                ? '支持方已核验指定范围恢复，客户验收未确认'
+                : '客户已明确确认恢复'}
+          </summary>
+          {recovery.scope ? <p>核验范围：{recovery.scope}</p> : null}
           <p>确认消息时间：{formatTime(recovery.confirmed_at)}</p>
           <ContinuityEvidence items={recovery.evidence} />
+          {recovery.supporting_evidence?.length ? (
+            <>
+              <p>独立确认依据：</p>
+              <ContinuityEvidence items={recovery.supporting_evidence} />
+            </>
+          ) : null}
         </details>
       ) : null}
       {previous ? (
         <details className="aside-update-facts">
-          <summary>本次为恢复后再次发生</summary>
+          <summary>
+            {previous.review_status === 'retracted'
+              ? '误拆复发关系已撤销'
+              : previous.review_status === 'pending'
+                ? '前后发生轮次待核对'
+                : '本次为恢复后再次发生'}
+          </summary>
+          {previous.review_reason ? <p>{previous.review_reason}</p> : null}
           <p>
             <a href={`/events?${previousQuery}`}>查看前次事件</a>
           </p>
@@ -67,6 +90,47 @@ function RecoveryDetails({ event }: { event: API.EventResponse }) {
           <ContinuityEvidence items={previous.evidence} />
         </details>
       ) : null}
+    </section>
+  );
+}
+
+function BusinessRelations({ event }: { event: API.EventResponse }) {
+  if (!event.relations?.length) return null;
+  return (
+    <section aria-label="事项关系">
+      <h3>事项关系</h3>
+      {event.relations.map((relation) => (
+        <details key={`${relation.kind}-${relation.event_id}`}>
+          <summary>
+            {relation.kind === 'caused_by' ? '因果关联' : '方案关联'} ·{' '}
+            {relation.review_status === 'pending'
+              ? '依据待核实'
+              : relation.review_status === 'retracted'
+                ? '已撤销'
+                : '依据有效'}
+          </summary>
+          <a
+            href={`/events?${new URLSearchParams({ uid: event.uid, stream: event.stream, event: relation.event_id })}`}
+          >
+            查看关联事项
+          </a>
+          <p>{relation.reason}</p>
+          {relation.review_reason ? <p>{relation.review_reason}</p> : null}
+          {[...relation.evidence, ...relation.retraction_evidence].map(
+            (proof) => (
+              <blockquote key={JSON.stringify(proof)}>
+                <p>{proof.quote}</p>
+                <small>
+                  消息 {proof.message_id} · {formatTime(proof.send_time)}
+                </small>
+                {proof.evidence_status === 'superseded' ? (
+                  <p>旧依据已修订，仅供历史核对。</p>
+                ) : null}
+              </blockquote>
+            ),
+          )}
+        </details>
+      ))}
     </section>
   );
 }
@@ -161,7 +225,13 @@ function sourceLine(platforms: string[], groupCount: number) {
   return parts;
 }
 
-export function EventPane({ event }: { event: API.EventResponse }) {
+export function EventPane({
+  event,
+  onSaved,
+}: {
+  event: API.EventResponse;
+  onSaved?: () => void;
+}) {
   const conversations = event.conversations || [];
   const platforms = event.platforms?.length
     ? event.platforms
@@ -262,6 +332,11 @@ export function EventPane({ event }: { event: API.EventResponse }) {
       <aside className="inbox-aside" aria-label="事件详情">
         <h2 className="event-aside-title">事件详情</h2>
         <div className="event-aside inbox-pane-scroll" key={event.event_id}>
+          {event.review_flag ? (
+            <div className="notice notice-warning">
+              {event.review_flag}，需要进一步核对。
+            </div>
+          ) : null}
           <dl className="aside-summary">
             <dt>摘要</dt>
             <dd>
@@ -274,12 +349,6 @@ export function EventPane({ event }: { event: API.EventResponse }) {
             </dd>
           </dl>
           <dl className="aside-fields">
-            <div>
-              <dt>类型</dt>
-              <dd>
-                <EventType type={event.type} />
-              </dd>
-            </div>
             <div>
               <dt>来源</dt>
               <dd>{platforms.length ? platforms.join('、') : '—'}</dd>
@@ -304,6 +373,7 @@ export function EventPane({ event }: { event: API.EventResponse }) {
               </dd>
             </div>
           </dl>
+          <ClassificationDetails event={event} />
           <section className="event-handling" aria-labelledby="event-handling">
             <h3 id="event-handling">跟进信息</h3>
             <dl>
@@ -318,6 +388,7 @@ export function EventPane({ event }: { event: API.EventResponse }) {
             </dl>
           </section>
           <RecoveryDetails event={event} />
+          <BusinessRelations event={event} />
         </div>
       </aside>
     </>

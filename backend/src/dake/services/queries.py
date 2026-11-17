@@ -4,7 +4,8 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 from ..analysis.providers.xhub import configured_stream
-from ..domain.models import EVENT_TYPES
+from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE
+from ..domain.models import TYPE_ATTRIBUTE_NAMES
 from ..ingestion.client import validate_uid
 from ..repositories.mysql import MySQLStore
 from ..repositories.attempts import AttemptRepository
@@ -60,9 +61,9 @@ class QueryService:
                        "official_chat", configured_stream(self.settings)) for uid in official_uids]
             for uid, label, source, stream in scopes:
                 rows, _ = store._execute("SELECT COUNT(*) AS total FROM messages WHERE uid=%s AND source=%s", (uid, source))
-                counts, _ = store._execute("SELECT COUNT(*) AS total FROM events WHERE uid=%s AND stream=%s", (uid, stream))
+                count = len(store.list_events(uid, stream))
                 customers.append(dict(uid=uid, label=label, stream=stream,
-                                      message_count=rows[0]["total"], event_count=counts[0]["total"]))
+                                      message_count=rows[0]["total"], event_count=count))
         end = self.settings.end
         end_text = (end - timedelta(days=1)).date().isoformat() if end.time().isoformat() == "00:00:00" else end.isoformat()
         return dict(uid=self.settings.uid, start=self.settings.start.isoformat(), end=end_text,
@@ -71,24 +72,35 @@ class QueryService:
                     match_window=duration_label(self.settings.match_window),
                     ingest_lookback=duration_label(self.settings.ingest_lookback),
                     closed_grace=duration_label(self.settings.closed_grace),
-                    event_types=list(EVENT_TYPES), provider=self.settings.provider, customers=customers)
+                    event_types=list(EVENT_TYPES), provider=self.settings.provider, customers=customers,
+                    field_targets=[dict(kind="common", name=name, type_label=None) for name in
+                        ("summary", "status", "severity", "assignees", "other_reason")]
+                    + [dict(kind="label", name=label, type_label=None) for label in EVENT_LABELS]
+                    + [dict(kind="attribute", name=name, type_label=label)
+                       for label, names in TYPE_ATTRIBUTE_NAMES.items() for name in names])
 
     def events(self, uid=None, stream=None, event_type=None):
-        """返回当前事件版本，类型筛选保持官方六类，不改变事件身份。"""
+        """按当前标签筛选，旧单类型记录保留主类型兼容。"""
         uid, stream = self.scope(uid, stream)
-        if event_type is not None and event_type not in EVENT_TYPES:
-            raise ValueError("事件类型须为官方六类之一")
+        if event_type is not None and event_type not in (*EVENT_LABELS, PENDING_TYPE):
+            raise ValueError("事件类型须为官方六类、其他或待分类")
         with self.connection() as store:
             events = store.list_events(uid, stream)
-            items = [event.to_dict() for event in events if event_type is None or event.type == event_type]
+            items = [event.to_dict() for event in events if event_type is None
+                     or event_type in (event.types or [event.type])]
             items = enrich_events(store, uid, items, load_sender_roles(self.settings.data_dir),
                                   load_sender_kinds(self.settings.data_dir))
         return {"items": items, "total": len(items)}
 
     def event(self, event_id, uid=None, stream=None):
         """详情也进行客户与流校验，不能仅凭猜测的事件 ID 越过隔离。"""
-        items = self.events(uid, stream)["items"]
-        return next((event for event in items if event["event_id"] == event_id), None)
+        uid, stream = self.scope(uid, stream)
+        with self.connection() as store:
+            event = next((event for event in store.list_events(uid, stream) if event.event_id == event_id), None)
+            if event is None:
+                return None
+            return enrich_events(store, uid, [event.to_dict()], load_sender_roles(self.settings.data_dir),
+                                 load_sender_kinds(self.settings.data_dir))[0]
 
     def event_changes(self, event_id, uid, stream, runs, offset=0, execution_offset=0, *, include_details=True):
         """变化面板只读已保存事件与批次，不补查当前消息或私有模型日志。"""

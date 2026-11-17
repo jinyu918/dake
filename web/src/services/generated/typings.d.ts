@@ -1,4 +1,23 @@
 declare namespace API {
+  type BusinessRelation = {
+    /** Kind */
+    kind: "based_on" | "caused_by";
+    /** Event Id */
+    event_id: string;
+    /** Reason */
+    reason: string;
+    /** Evidence */
+    evidence: ChangeEvidence[];
+    /** Review Status */
+    review_status: "confirmed" | "pending" | "retracted";
+    /** Review Reason */
+    review_reason: string | null;
+    /** Retraction Evidence */
+    retraction_evidence: ChangeEvidence[];
+    /** Origin Event Id */
+    origin_event_id: string | null;
+  };
+
   type ChangeEvidence = {
     /** Source */
     source: string;
@@ -12,9 +31,13 @@ declare namespace API {
     send_time: string;
     /** Quote */
     quote: string;
+    /** Evidence Status */
+    evidence_status: string | null;
   };
 
   type ConfigResponse = {
+    /** Field Targets */
+    field_targets: FieldTarget[];
     /** Uid */
     uid: string;
     /** Start */
@@ -52,6 +75,8 @@ declare namespace API {
     send_time: string;
     /** Quote */
     quote: string;
+    /** Evidence Status */
+    evidence_status: string | null;
     /** Sender Id */
     sender_id: string;
   };
@@ -80,10 +105,12 @@ declare namespace API {
     send_time: string;
     /** Quote */
     quote: string;
+    /** Evidence Status */
+    evidence_status: string | null;
     /** Sender Id */
     sender_id: string;
     /** Sender Role */
-    sender_role: string;
+    sender_role: "customer" | "internal";
   };
 
   type CustomerResponse = {
@@ -273,6 +300,17 @@ declare namespace API {
     stream: string;
     /** Type */
     type: string;
+    /** Types */
+    types: string[];
+    /** Type Evidence */
+    type_evidence: Record<string, any>;
+    /** Removed Types */
+    removed_types: Record<string, any>;
+    /** Classification Evidence Status */
+    classification_evidence_status: string;
+    /** Classification Status */
+    classification_status: string;
+    other_reason: JsonValue | null;
     /** Topic Key */
     topic_key: string | null;
     /** Start Time */
@@ -293,6 +331,14 @@ declare namespace API {
     evidence: EvidenceResponse[];
     /** Attributes */
     attributes: Record<string, any>;
+    /** Typed Attributes */
+    typed_attributes: Record<string, any>;
+    /** Version */
+    version: number;
+    /** Field States */
+    field_states: Record<string, any>;
+    /** Field Issues */
+    field_issues: FieldIssue[];
     /** Extensions */
     extensions: Record<string, any>;
     /** Review Flag */
@@ -301,6 +347,8 @@ declare namespace API {
     closed_at: string | null;
     recovery: RecoveryConfirmation | null;
     recurrence_of: RecurrenceLink | null;
+    /** Relations */
+    relations: BusinessRelation[];
     /** Schema Version */
     schema_version: number;
     /** Updated By */
@@ -332,7 +380,10 @@ declare namespace API {
       | "confirmation"
       | "correction"
       | "evidence_only"
+      | "classification"
       | null;
+    /** Source */
+    source: string;
     /** Change Summary */
     change_summary: string | null;
     /** Summary Changed */
@@ -354,6 +405,17 @@ declare namespace API {
     stream: string;
     /** Type */
     type: string;
+    /** Types */
+    types: string[];
+    /** Type Evidence */
+    type_evidence: Record<string, any>;
+    /** Removed Types */
+    removed_types: Record<string, any>;
+    /** Classification Evidence Status */
+    classification_evidence_status: string;
+    /** Classification Status */
+    classification_status: string;
+    other_reason: JsonValue | null;
     /** Topic Key */
     topic_key: string | null;
     /** Start Time */
@@ -374,6 +436,14 @@ declare namespace API {
     evidence: EvidenceResponse[];
     /** Attributes */
     attributes: Record<string, any>;
+    /** Typed Attributes */
+    typed_attributes: Record<string, any>;
+    /** Version */
+    version: number;
+    /** Field States */
+    field_states: Record<string, any>;
+    /** Field Issues */
+    field_issues: FieldIssue[];
     /** Extensions */
     extensions: Record<string, any>;
     /** Review Flag */
@@ -382,6 +452,8 @@ declare namespace API {
     closed_at: string | null;
     recovery: RecoveryConfirmation | null;
     recurrence_of: RecurrenceLink | null;
+    /** Relations */
+    relations: BusinessRelation[];
     /** Schema Version */
     schema_version: number;
   };
@@ -415,6 +487,8 @@ declare namespace API {
     sender_role: "internal" | "support" | "customer" | "external" | "unknown";
     /** Sender Kind */
     sender_kind: "human" | "bot" | "unknown";
+    /** Origin Event Id */
+    origin_event_id: string | null;
   };
 
   type ExecutionCandidate = {
@@ -559,6 +633,93 @@ declare namespace API {
     basis: RecordedMessageRef[];
   };
 
+  type FieldEvidence = {
+    /** Source */
+    source: string;
+    /** Message Id */
+    message_id: string;
+    /** Digest */
+    digest?: string | null;
+    /** Send Time */
+    send_time?: string | null;
+    /** Conversation Id */
+    conversation_id?: string | null;
+    /** Quote */
+    quote?: string | null;
+    /** Evidence Status */
+    evidence_status?: string | null;
+  };
+
+  type FieldFact = {
+    /** Id */
+    id: string;
+    /** Value */
+    value: string | boolean | string[] | null;
+    /** Value State */
+    value_state: "value" | "cleared" | "unknown" | "not_applicable";
+    /** Stage */
+    stage: string;
+    /** Scope */
+    scope: string;
+    /** Business Time */
+    business_time: string | null;
+    /** Time Kind */
+    time_kind: "unknown" | "planned" | "actual";
+    /** Intent */
+    intent: string;
+    /** Replaces */
+    replaces: string[];
+    /** Reason */
+    reason: string;
+    /** Evidence */
+    evidence: FieldEvidence[];
+    /** Source */
+    source: "automatic" | "legacy";
+    /** Evidence Status */
+    evidence_status: string;
+    /** Status */
+    status: string;
+    /** Input Ref */
+    input_ref: string | null;
+  };
+
+  type FieldIssue = {
+    /** Id */
+    id: string;
+    /** Field Key */
+    field_key: string;
+    target: FieldTarget;
+    /** Reason */
+    reason: string;
+    /** Fact Id */
+    fact_id: string | null;
+    /** Affected Ids */
+    affected_ids: string[];
+    /** Status */
+    status: "open" | "resolved";
+    /** Resolution */
+    resolution: Record<string, any> | null;
+  };
+
+  type FieldState = {
+    target: FieldTarget;
+    /** Facts */
+    facts: FieldFact[];
+    /** Adopted Ids */
+    adopted_ids: string[];
+    /** Archived */
+    archived: boolean;
+  };
+
+  type FieldTarget = {
+    /** Kind */
+    kind: "common" | "label" | "attribute";
+    /** Name */
+    name: string;
+    /** Type Label */
+    type_label?: string | null;
+  };
+
   type getEventChangesParams = {
     event_id: string;
     uid: string;
@@ -684,9 +845,15 @@ declare namespace API {
     /** Evidence */
     evidence: CustomerRecoveryEvidence[];
     /** Identity Basis */
-    identity_basis: string;
+    identity_basis: "confirmed_account" | "confirmed_support_account";
     /** Policy Version */
     policy_version: string;
+    /** Review Status */
+    review_status: "confirmed" | "pending";
+    /** Supporting Evidence */
+    supporting_evidence: CustomerRecoveryEvidence[];
+    /** Scope */
+    scope: string | null;
   };
 
   type RecurrenceLink = {
@@ -699,6 +866,14 @@ declare namespace API {
     evidence: ContinuityEvidence[];
     /** Policy Version */
     policy_version: string;
+    /** Review Status */
+    review_status: "confirmed" | "pending" | "retracted";
+    /** Review Reason */
+    review_reason: string | null;
+    /** Retraction Evidence */
+    retraction_evidence: Record<string, any>[];
+    /** Retracted By */
+    retracted_by: string | null;
   };
 
   type ReviewResponse = {

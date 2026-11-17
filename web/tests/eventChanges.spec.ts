@@ -5,6 +5,7 @@ import {
   ChangesContent,
   VersionDifference,
 } from '../src/pages/events/EventChangesDrawer';
+import { fieldDefaults, revisionDefaults } from './fieldDefaults';
 
 function data(): API.EventChangesResponse {
   return {
@@ -120,6 +121,7 @@ test('缺失历史快照时不能显示成摘要未变或状态已恢复', () =>
     summary_changed: null,
     changed_fields: [],
     changes: [],
+    ...revisionDefaults,
     policy_version: null,
   };
   const markup = renderToStaticMarkup(
@@ -148,12 +150,20 @@ test('同一消息编辑保留前后证据版本与摘要状态差异', () => {
     internal_hint: null,
     sender_role: 'unknown',
     sender_kind: 'unknown',
+    origin_event_id: null,
   };
   const before: API.EventSnapshot = {
+    ...fieldDefaults,
     event_id: 'synthetic-event',
     uid: 'synthetic-customer',
     stream: 'synthetic-stream',
     type: '排障',
+    types: ['排障'],
+    type_evidence: {},
+    removed_types: {},
+    classification_evidence_status: '未记录',
+    classification_status: '已分类',
+    other_reason: null,
     topic_key: null,
     start_time: old.send_time,
     end_time: old.send_time,
@@ -164,6 +174,7 @@ test('同一消息编辑保留前后证据版本与摘要状态差异', () => {
     evidence: [old],
     assignees: [],
     attributes: {},
+    typed_attributes: {},
     extensions: {},
     review_flag: null,
     closed_at: null,
@@ -194,6 +205,7 @@ test('同一消息编辑保留前后证据版本与摘要状态差异', () => {
     summary_changed: true,
     changed_fields: ['summary', 'status'],
     changes: [],
+    ...revisionDefaults,
     policy_version: null,
   };
   const markup = renderToStaticMarkup(

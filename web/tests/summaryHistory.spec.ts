@@ -3,13 +3,21 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { EventPane } from '../src/pages/events/EventPane';
 import { SavedChanges } from '../src/pages/events/SavedChanges';
+import { fieldDefaults, revisionDefaults } from './fieldDefaults';
 
 test('右侧只展示当前详情，历史变化集中在变化面板', () => {
   const snapshot: API.EventSnapshot = {
+    ...fieldDefaults,
     event_id: 'synthetic-history-event',
     uid: 'synthetic-customer',
     stream: 'synthetic-stream',
     type: '排障',
+    types: ['排障'],
+    type_evidence: {},
+    removed_types: {},
+    classification_evidence_status: '未记录',
+    classification_status: '已分类',
+    other_reason: null,
     topic_key: '虚构报告上传',
     start_time: '2038-06-01T09:00:00+08:00',
     end_time: '2038-06-02T09:00:00+08:00',
@@ -20,6 +28,7 @@ test('右侧只展示当前详情，历史变化集中在变化面板', () => {
     assignees: [],
     evidence: [],
     attributes: {},
+    typed_attributes: {},
     extensions: {},
     review_flag: null,
     closed_at: null,
@@ -40,6 +49,7 @@ test('右侧只展示当前详情，历史变化集中在变化面板', () => {
     summary_changed: null,
     changed_fields: [],
     changes: [],
+    ...revisionDefaults,
     policy_version: null,
   };
   const current = { ...snapshot, summary: '虚构报告失败，已确认参数错误。' };
@@ -69,6 +79,7 @@ test('右侧只展示当前详情，历史变化集中在变化面板', () => {
             conversation_id: 'synthetic-room',
             send_time: '2038-06-02T09:00:00+08:00',
             quote: '虚构测试结论：参数确实错误。',
+            evidence_status: null,
           },
         ],
       },
@@ -130,18 +141,29 @@ test('复发详情区分前次恢复与本次依据，并保留同客户关联�
     sender_role: 'customer',
     send_time: '2038-06-02T09:00:00+08:00',
     quote: '虚构客户确认：我测试上传已经恢复。',
+    evidence_status: null,
   };
   const recovery: API.RecoveryConfirmation = {
     confirmed_at: proof.send_time,
     evidence: [proof],
     identity_basis: 'confirmed_account',
     policy_version: 'synthetic-policy',
+    review_status: 'confirmed',
+    supporting_evidence: [],
+    scope: null,
   };
   const event: API.EventResponse = {
+    ...fieldDefaults,
     event_id: 'synthetic-recurrence',
     uid: 'synthetic-customer',
     stream: 'synthetic-stream',
     type: '排障',
+    types: ['排障'],
+    type_evidence: {},
+    removed_types: {},
+    classification_evidence_status: '未记录',
+    classification_status: '已分类',
+    other_reason: null,
     topic_key: '虚构上传',
     summary: '虚构上传再次失败。',
     start_time: '2038-06-10T09:00:00+08:00',
@@ -152,6 +174,7 @@ test('复发详情区分前次恢复与本次依据，并保留同客户关联�
     assignees: [],
     evidence: [],
     attributes: {},
+    typed_attributes: {},
     extensions: {},
     updated_by: [],
     platforms: [],
@@ -172,6 +195,10 @@ test('复发详情区分前次恢复与本次依据，并保留同客户关联�
         },
       ],
       policy_version: 'synthetic-policy',
+      review_status: 'confirmed',
+      review_reason: null,
+      retraction_evidence: [],
+      retracted_by: null,
     },
   };
   const markup = renderToStaticMarkup(createElement(EventPane, { event }));

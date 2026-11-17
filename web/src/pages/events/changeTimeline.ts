@@ -7,12 +7,21 @@ const fields = {
   severity: '等级',
   assignees: '跟进人',
   attributes: '事件属性',
+  types: '类型标签',
+  type_evidence: '分类依据',
+  removed_types: '标签撤销记录',
+  typed_attributes: '类型专属属性',
+  classification_status: '分类状态',
+  classification_evidence_status: '分类依据状态',
+  other_reason: '其他业务理由',
   recovery: '恢复确认',
   recurrence_of: '复发关联',
   review_flag: '待确认标记',
   closed_at: '关闭状态',
   type: '事件类型',
   topic_key: '事件主题',
+  field_states: '字段事实',
+  field_issues: '字段待核对问题',
 } as const;
 
 function same(left: unknown, right: unknown) {
@@ -162,14 +171,16 @@ export function savedChanges(data: API.EventChangesResponse) {
             revision.action === 'created'
               ? '新建事件'
               : evidenceOnly
-                ? '仅补证据'
-                : revision.change_kind === 'confirmation'
-                  ? '进展确认'
-                  : revision.change_kind === 'correction'
-                    ? '结论更正'
-                    : revision.change_kind === 'progress'
-                      ? '事件进展'
-                      : '已保存修订',
+                  ? '仅补证据'
+                  : revision.change_kind === 'confirmation'
+                    ? '进展确认'
+                    : revision.change_kind === 'correction'
+                      ? '结论更正'
+                      : revision.change_kind === 'progress'
+                        ? '事件进展'
+                        : revision.change_kind === 'classification'
+                          ? '分类依据更新'
+                          : '已保存修订',
         },
       ];
     })

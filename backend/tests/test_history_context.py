@@ -397,7 +397,7 @@ def test_formal_provider_receives_background_through_shared_service_with_mock_ht
     def respond(request):
         calls.append(json.loads(request.content))
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
-            "content": json.dumps(dict(schema_version="4.0", candidates=[]))}}]})
+            "content": json.dumps(dict(schema_version="5.0", candidates=[]))}}]})
 
     provider = XHubProvider(XHubConfig(model="synthetic-model", api_key="synthetic-placeholder"), settings,
                             transport=httpx.MockTransport(respond))

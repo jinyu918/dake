@@ -243,7 +243,7 @@ def test_same_second_messages_keep_numeric_id_order(tmp_path, recurrence_id, all
     assert result.updated == [event_id]
 
 
-@pytest.mark.parametrize("violation", ["unknown_parent", "other_uid", "other_stream", "other_type", "bad_quote", "history_as_new", "update_target_on_new"])
+@pytest.mark.parametrize("violation", ["unknown_parent", "other_uid", "other_stream", "bad_quote", "history_as_new", "update_target_on_new"])
 def test_invalid_recurrence_rolls_back_whole_batch(tmp_path, violation):
     setup, _ = recovered(tmp_path)
     service, store, provider, source, old, event_id = setup
@@ -345,7 +345,9 @@ def test_repeat_confirmation_does_not_move_original_recovery_boundary(tmp_path):
     saved = deepcopy(setup[1].events[setup[-1]].recovery)
     again = message("still-recovered", 3, "虚构工单今天再测试仍然正常。")
     followup(setup, again, continuity=boundary("confirm_recovery", again), changes=[change(again, kind="confirmation")])
-    assert setup[1].events[setup[-1]].recovery == saved
+    current = setup[1].events[setup[-1]].recovery
+    assert {key: value for key, value in current.items() if key != "supporting_evidence"} == saved
+    assert current["supporting_evidence"][0]["message_id"] == again.message_id
     before = deepcopy(setup[1].events)
     ack = message("ack", 4, "虚构工单的恢复反馈收到。")
     service, _, provider, source, old, event_id = setup

@@ -64,14 +64,26 @@ class HistoryCandidate:
         """模型仅获得有预算的概述、身份、时间、状态和引用线索。"""
         event = self.event
         recovery = event.recovery
-        return dict(event_id=event.event_id, type=event.type, topic_key=event.topic_key,
+        return dict(event_id=event.event_id, type=event.type,
+                    types=event.types or ([event.type] if event.type != "待分类" else []),
+                    type_evidence=event.type_evidence,
+                    removed_types=event.removed_types,
+                    classification_evidence_status=event.classification_evidence_status,
+                    classification_status=event.classification_status,
+                    other_reason=event.other_reason,
+                    typed_attributes=event.typed_attributes,
+                    field_states=event.field_states, field_issues=event.field_issues, version=event.version,
+                    topic_key=event.topic_key,
                     start_time=event.start_time.isoformat(), end_time=event.end_time.isoformat(),
                     summary=event.summary, status=event.status, severity=event.severity,
                     assignees=event.assignees,
                     closed_at=event.closed_at.isoformat() if event.closed_at else None,
                     recovery=dict(confirmed_at=recovery["confirmed_at"], evidence_ids=[
-                        f"{ref['source']}:{ref['message_id']}" for ref in recovery["evidence"]]) if recovery else None,
+                        f"{ref['source']}:{ref['message_id']}" for ref in recovery["evidence"]],
+                        identity_basis=recovery["identity_basis"], scope=recovery.get("scope"),
+                        review_status=recovery.get("review_status", "confirmed")) if recovery else None,
                     recurrence_of_event_id=event.recurrence_of["event_id"] if event.recurrence_of else None,
+                    relations=event.relations,
                     hit_reasons=list(self.hit_reasons), evidence_ids=list(self.evidence_ids),
                     evidence_limited=self.evidence_limited)
 
@@ -128,6 +140,7 @@ class HistoryRetriever:
             return result
         event_refs, message_refs, keywords, result.clues_limited = _clues(messages, self.limits)
         recent_start = before - timedelta(days=self.limits.recent_days)
+        rooms = {(message.source, message.conversation_id) for message in messages if message.conversation_id}
         matches, seen = [], set()
 
         def consume(heads):
@@ -172,10 +185,16 @@ class HistoryRetriever:
                 hits = [word for word in keywords if word in text]
                 exact_event = event.event_id in event_refs
                 exact_message = any(key in evidence_ids for key in message_refs)
-                if not (exact_event or exact_message or hits):
+                contextual = event.end_time >= recent_start and any(
+                    (proof.get("source"), proof.get("conversation_id")) in rooms
+                    for facts in event.type_evidence.values() for fact in facts
+                    for proof in fact.get("evidence_refs", []))
+                if not (exact_event or exact_message or hits or contextual):
                     continue
                 reasons = (["exact_event_id"] if exact_event else []) + (["exact_message_key"] if exact_message else [])
                 reasons += ["keyword:" + word for word in hits]
+                if contextual:
+                    reasons.append("recent_conversation_context")
                 reasons.append("recent" if event.end_time >= recent_start else "older")
                 # 关闭与未关闭只影响候选排序，不在这里认定恢复、持续或复发。
                 rank = (-int(exact_event), -int(exact_message), event.end_time < recent_start,
@@ -201,7 +220,8 @@ class HistoryRetriever:
                     + recovery_ids + [chronology[0], chronology[-1]] + ordered_ids))[:self.limits.evidence_limit]
                 evidence_refs = tuple(deepcopy(evidence_by_id[key]) for key in context_ids)
                 event.evidence = [dict(source=evidence_by_id[key]["source"], message_id=evidence_by_id[key]["message_id"],
-                                       send_time=evidence_by_id[key]["send_time"]) for key in selected_ids]
+                                       send_time=evidence_by_id[key]["send_time"],
+                                       digest=evidence_by_id[key].get("digest")) for key in selected_ids]
                 matches.append((rank, HistoryCandidate(event, tuple(reasons), tuple(selected_ids),
                                                        len(evidence_ids) > len(selected_ids), evidence_refs)))
 

@@ -71,6 +71,16 @@ def test_ambiguous_candidate_does_not_force_identity():
     assert result.ambiguous and result.referenced_event_id is None
 
 
+def test_legacy_event_keeps_type_without_inventing_label_evidence():
+    moment = parse_time("2026-11-08T08:00:00+08:00")
+    event = Event.from_dict(dict(event_id="old", uid=UID, stream="test", type="排障", topic_key="合成主题",
+        start_time=moment.isoformat(), end_time=moment.isoformat(), created_on=moment.isoformat(),
+        status="未知", severity="未知", summary="合成摘要", attributes={}, evidence=[], updated_by=[]))
+    assert event.types == ["排障"]
+    assert event.type_evidence == {}
+    assert event.classification_evidence_status == "未记录"
+
+
 @pytest.mark.parametrize("status", [301, 400, 401, 429, 500])
 def test_http_failure_is_not_successful_empty_result(tmp_path, status):
     calls = []

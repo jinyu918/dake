@@ -16,6 +16,8 @@ import { eventTitle, revisionHeadline } from './eventTitle';
 
 const DAY = 24 * 60 * 60 * 1000;
 
+const additionalTypes = ['其他', '待分类'];
+
 /** 上海时区的自然日序号，用于按天比较。 */
 function dayIndex(value: string) {
   const key = new Date(value).toLocaleDateString('sv-SE', {
@@ -65,6 +67,12 @@ export default function EventsPage() {
   );
 
   const items = events.data?.items ?? [];
+  const linkedEvent = useResource(
+    eventId && customer && !items.some((item) => item.event_id === eventId)
+      ? `event-link:${uid}:${stream}:${eventId}`
+      : null,
+    () => api.event(eventId, uid, stream),
+  );
   const groups = useMemo(() => {
     const map = new Map<string, string>();
     for (const event of items) {
@@ -117,7 +125,9 @@ export default function EventsPage() {
     invalidRange,
   ]);
 
-  const selected = visible.find((event) => event.event_id === eventId);
+  const selected =
+    visible.find((event) => event.event_id === eventId) ||
+    (linkedEvent.data?.event_id === eventId ? linkedEvent.data : undefined);
   const filtering = Boolean(type || group || range?.value);
 
   function update(values: Record<string, string>) {
@@ -133,7 +143,7 @@ export default function EventsPage() {
 
   useEffect(() => {
     if (!visible.length) return;
-    if (eventId && visible.some((event) => event.event_id === eventId)) return;
+    if (eventId) return;
     if (!eventId && dismissed.current) return;
     const next = new URLSearchParams(params);
     next.set('event', visible[0].event_id);
@@ -171,6 +181,11 @@ export default function EventsPage() {
           >
             <option value="">全部类型</option>
             {(workspace.data?.event_types || []).map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+            {additionalTypes.map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>
@@ -267,7 +282,13 @@ export default function EventsPage() {
                       </span>
                       <span className="event-row-preview">{event.summary}</span>
                       <span className="event-row-sub">
-                        <span className="type-tag">{event.type}</span>
+                        {(event.types?.length ? event.types : [event.type]).map(
+                          (type) => (
+                            <span className="type-tag" key={type}>
+                              {type}
+                            </span>
+                          ),
+                        )}
                         <time dateTime={event.end_time}>
                           {formatTime(event.end_time)}
                         </time>
@@ -290,6 +311,7 @@ export default function EventsPage() {
           <EventPane
             key={JSON.stringify([uid, stream, selected.event_id])}
             event={selected}
+            onSaved={events.refresh}
           />
         ) : null}
       </div>

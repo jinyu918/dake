@@ -701,8 +701,8 @@ def test_late_validation_enters_single_repair_without_preflight_writes(tmp_path,
         provider.close()
 
 
-def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_path):
-    """字段原文另在同批一条消息时补齐事实记录，不能丢字段或额外请求模型。"""
+def test_explicit_field_update_uses_its_own_current_evidence(tmp_path):
+    """分类属性按独立字段事实和当前消息证据保存，不混入摘要。"""
     service, attempts, store, source, _, first = setup(tmp_path)
     settings = replace(service.settings, provider="xhub")
     follow = message("follow", 2, "虚构工单今天完成初步排查，仍需验证。")
@@ -718,8 +718,10 @@ def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_p
                 basis=[dict(message_id=follow.key, quote=follow.content), dict(message_id=first.key, quote=first.content)]))
             item = payload["candidates"][0]
             item["evidence_ids"].append(detail.key)
-            item["attributes"] = [dict(name="测试环境", value="合成集群甲", quote=detail.content,
-                                       evidence_ids=[detail.key])]
+            item["field_updates"] = [dict(target=dict(kind="attribute", type_label="排障", name="排查发现与根因"),
+                ref="environment-finding", value="测试环境为合成集群甲", stage="环境排查", scope="本事项",
+                business_time=None, time_kind="unknown", intent="supplement", replaces=[],
+                reason="当前消息明确描述测试环境", evidence=[dict(message_id=detail.key, quote=detail.content)])]
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
             "content": json.dumps(payload)}}]})
 
@@ -732,14 +734,12 @@ def test_verified_current_field_quote_is_saved_without_extra_model_request(tmp_p
         result = service.run_window(UID, window(2))
         assert result.updated == [target] and len(calls) == 2
         event = store.events[target]
-        assert event.attributes["测试环境"] == "合成集群甲"
-        assert follow.content in event.summary and detail.content in event.summary
+        assert event.attributes["排查发现与根因"] == "测试环境为合成集群甲"
+        assert follow.content in event.summary and detail.content not in event.summary
         assert len(event.updated_by) == 2
-        changes = event.updated_by[-1]["changes"]
-        assert changes[-1]["text"] == changes[-1]["evidence"][0]["quote"] == detail.content
-        saved = stage(last(attempts), "model_completed")
-        assert saved["normalizations"][0]["reason"] == "verified_current_field_quote"
-        assert len(json.loads(provider.traces[-1]["output"])["candidates"][0]["changes"]) == 1
+        state = event.field_states["attribute:排障:排查发现与根因"]
+        assert state["facts"][-1]["evidence"][0]["quote"] == detail.content
+        assert json.loads(provider.traces[-1]["output"])["candidates"][0]["field_updates"][0]["ref"] == "environment-finding"
         assert last(attempts)["outcome"] == "committed"
         assert len(last(attempts)["receipt"]["processed_versions"]) == 2
     finally:

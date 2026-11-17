@@ -126,6 +126,11 @@ export function CyclePanel({
                 const item = cycle.events.find(
                   (candidate) => candidate.event_id === change.id,
                 );
+                const types = item?.types?.length
+                  ? item.types
+                  : item && item.type !== '待分类'
+                    ? [item.type]
+                    : [];
                 return (
                   item && (
                     <button
@@ -134,11 +139,15 @@ export function CyclePanel({
                       className="cycle-event"
                       onClick={() => setEvent(item)}
                     >
-                      <EventType type={item.type} compact />
+                      <span className="cycle-event-types">
+                        {types.map((type) => (
+                          <EventType key={type} type={type} compact />
+                        ))}
+                      </span>
                       <span>
                         <strong>{item.summary}</strong>
                         <small>
-                          {item.type}
+                          {types.join('、') || '待分类'}
                           <span>·</span>
                           {item.evidence.length} 条证据
                         </small>
