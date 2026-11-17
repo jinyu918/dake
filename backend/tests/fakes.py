@@ -150,6 +150,17 @@ class FakeSource:
         self.messages = list(messages)
         self.calls = []
 
+    def load_window(self, uid, start, end):
+        """保留按日假来源以覆盖旧回放，同时实现统一窗口协议。"""
+        from datetime import timedelta
+
+        day = start.date()
+        messages = []
+        while day <= (end - timedelta(microseconds=1)).date():
+            messages.extend(m for m in self.load_day(uid, day) if start <= m.sent_at < end)
+            day += timedelta(days=1)
+        return messages
+
     def load_day(self, uid, day):
         self.calls.append((uid, day))
         return deepcopy([m for m in self.messages if m.uid == uid and m.sent_at.date() == day])

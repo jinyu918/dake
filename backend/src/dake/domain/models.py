@@ -255,5 +255,6 @@ class CycleResult:
         value = dict(value)
         value.pop("recovered_from_history", None)
         value.pop("counts_complete", None)
+        value.pop("skipped_empty", None)
         value["window"] = Window(parse_time(value["window"]["start"]), parse_time(value["window"]["end"]))
         return cls(**value)

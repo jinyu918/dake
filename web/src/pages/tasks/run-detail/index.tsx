@@ -8,7 +8,6 @@ import { durationLabel, formatRange, formatTime } from '@/lib/utils';
 import { api } from '@/services/api';
 import { CyclePanel } from './CyclePanel';
 import { currentRun, runStatuses as statuses } from './progress';
-import { RunDialog } from './RunDialog';
 
 /** 列表与选中任务都从服务端恢复，关闭或刷新页面不会丢失执行进度。 */
 export default function RunsPage() {
@@ -17,7 +16,6 @@ export default function RunsPage() {
   const uid = params.get('uid') || workspace.data?.uid || '';
   const customer = workspace.data?.customers.find((item) => item.uid === uid);
   const stream = params.get('stream') || customer?.stream || '';
-  const creating = params.get('new') === 'official';
   const runs = useResource(
     uid && stream ? `runs:${uid}:${stream}` : null,
     (signal) => api.scopedRuns(uid, stream, signal),
@@ -80,10 +78,13 @@ export default function RunsPage() {
       <header className="page-header">
         <div>
           <div className="page-eyebrow">任务状态</div>
-          <h1>运行进度</h1>
+          <h1>客户执行详情</h1>
           <p>每 4 秒自动读取进度。失败会保留原因和已完成结果。</p>
         </div>
         <div className="page-header-actions">
+          <Button asChild>
+            <Link to="/tasks">返回任务中心</Link>
+          </Button>
           <Button asChild>
             <Link to={eventUrl}>
               <ArrowUpRight size={16} />
@@ -239,7 +240,9 @@ export default function RunsPage() {
                     </p>
                   )}
                   <p>
-                    进度包含空时段和已处理时段，不等于模型调用次数；更新旧事件时，事件总数也可能不变。
+                    已快速跳过{' '}
+                    {cycles.filter((cycle) => cycle.skipped_empty).length}{' '}
+                    个无待处理消息窗口；进度表示已检查的范围，不等于模型调用次数。
                   </p>
                   {run.status === 'failed' && (
                     <div className="run-failure" role="alert">
@@ -329,17 +332,6 @@ export default function RunsPage() {
           )}
         </section>
       </div>
-      {creating && workspace.data && (
-        <RunDialog
-          config={workspace.data}
-          onClose={() => update({ new: '' })}
-          onCreated={(created) => {
-            update({ new: '', run: created.run_id, cycle: '' });
-            runs.refresh();
-            workspace.refresh();
-          }}
-        />
-      )}
     </main>
   );
 }

@@ -59,9 +59,11 @@ export function CyclePanel({
                 <span>
                   <strong>{formatTime(item.window.start)}</strong>
                   <small>
-                    {item.counts_complete === false
-                      ? '消息数不完整'
-                      : `${item.processed} 条消息`}
+                    {item.skipped_empty
+                      ? '无待处理消息 · 已跳过'
+                      : item.counts_complete === false
+                        ? '消息数不完整'
+                        : `${item.processed} 条消息`}
                     <span>·</span>
                     {item.created.length + item.updated.length
                       ? `${item.created.length} 新建 / ${item.updated.length} 更新`

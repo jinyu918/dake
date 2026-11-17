@@ -128,6 +128,80 @@ declare namespace API {
     event_id: string;
   };
 
+  type CustomerGroup = {
+    /** Source */
+    source: string;
+    /** Group Id */
+    group_id: string;
+    /** Group Name */
+    group_name: string;
+    /** Uid */
+    uid: string | null;
+    /** Status */
+    status: "confirmed" | "review";
+    /** Reason */
+    reason: string;
+    /** Candidate Uids */
+    candidate_uids: string[];
+    /** First Seen At */
+    first_seen_at: string;
+    /** Last Seen At */
+    last_seen_at: string;
+    /** Synced At */
+    synced_at: string;
+  };
+
+  type CustomerGroupList = {
+    /** Items */
+    items: CustomerGroup[];
+    /** Total */
+    total: number;
+  };
+
+  type CustomerProfile = {
+    /** Segment */
+    segment: "large" | "non_large" | "pending";
+    /** Is Super Large */
+    is_super_large: boolean;
+    /** Uid */
+    uid: string;
+    /** Level */
+    level: string | null;
+    /** Rank Value */
+    rank_value: string | null;
+    /** Tam */
+    tam: string | null;
+    /** Tam B */
+    tam_b: string | null;
+    /** Level State */
+    level_state: string;
+    /** Tam State */
+    tam_state: string;
+    /** Level Error */
+    level_error: string | null;
+    /** Tam Error */
+    tam_error: string | null;
+    /** Level Synced At */
+    level_synced_at: string | null;
+    /** Tam Synced At */
+    tam_synced_at: string | null;
+    /** Attempted At */
+    attempted_at: string;
+    /** Created At */
+    created_at: string;
+    /** Updated At */
+    updated_at: string;
+    /** Group Count */
+    group_count: number;
+  };
+
+  type CustomerProfileList = {
+    /** Items */
+    items: CustomerProfile[];
+    /** Total */
+    total: number;
+  };
+
   type CustomerRecoveryEvidence = {
     /** Source */
     source: string;
@@ -160,6 +234,92 @@ declare namespace API {
     event_count: number;
     /** Stream */
     stream: string;
+    /** Level */
+    level?: string | null;
+    /** Level State */
+    level_state?: string;
+    /** Segment */
+    segment?: "large" | "non_large" | "pending";
+    /** Is Super Large */
+    is_super_large?: boolean;
+    /** Tam */
+    tam?: string | null;
+    /** Tam B */
+    tam_b?: string | null;
+    /** Group Count */
+    group_count?: number;
+    /** Group Names */
+    group_names?: string[];
+    /** Latest Event Time */
+    latest_event_time?: string | null;
+  };
+
+  type CustomerSyncCycle = {
+    window: TimeWindow;
+    /** Messages */
+    messages: number;
+    /** Groups */
+    groups: number;
+    /** Customers */
+    customers: number;
+    /** New Customers */
+    new_customers: number;
+    /** Refreshed Customers */
+    refreshed_customers: number;
+    /** New Groups */
+    new_groups: number;
+    /** Review Groups */
+    review_groups: number;
+    /** Profile Errors */
+    profile_errors: number;
+    /** Lookup Errors */
+    lookup_errors: number;
+  };
+
+  type CustomerSyncList = {
+    /** Items */
+    items: CustomerSyncResponse[];
+    /** Total */
+    total: number;
+  };
+
+  type CustomerSyncRequest = {
+    /** Start */
+    start: string;
+    /** End */
+    end: string;
+  };
+
+  type CustomerSyncResponse = {
+    /** Run Id */
+    run_id: string;
+    /** Status */
+    status: "queued" | "running" | "succeeded" | "failed";
+    request: CustomerSyncScope;
+    /** Total Windows */
+    total_windows: number;
+    /** Completed Windows */
+    completed_windows: number;
+    current_window: TimeWindow | null;
+    /** Created At */
+    created_at: string;
+    /** Started At */
+    started_at: string | null;
+    /** Finished At */
+    finished_at: string | null;
+    /** Error */
+    error: string | null;
+    /** Cycles */
+    cycles: CustomerSyncCycle[];
+  };
+
+  type CustomerSyncScope = {
+    /** Start */
+    start: string;
+    /** End */
+    end: string;
+    /** Interval */
+    interval: string;
   };
 
   type CycleResponse = {
@@ -187,6 +347,8 @@ declare namespace API {
     recovered_from_history: boolean;
     /** Counts Complete */
     counts_complete: boolean;
+    /** Skipped Empty */
+    skipped_empty: boolean;
   };
 
   type ErrorResponse = {
@@ -865,6 +1027,10 @@ declare namespace API {
     type_label?: string | null;
   };
 
+  type getCustomerSyncParams = {
+    run_id: string;
+  };
+
   type getEventChangesParams = {
     event_id: string;
     uid: string;
@@ -898,6 +1064,10 @@ declare namespace API {
     operation_id: string;
     uid: string;
     stream: string;
+  };
+
+  type getTaskExecutionParams = {
+    execution_id: string;
   };
 
   type HealthResponse = {
@@ -942,6 +1112,20 @@ declare namespace API {
 
   type JsonValue = Record<string, any>;
 
+  type listCustomerGroupsParams = {
+    uid?: string | null;
+    review?: boolean;
+    offset?: number;
+    limit?: number;
+  };
+
+  type listCustomerProfilesParams = {
+    offset?: number;
+    limit?: number;
+    keyword?: string;
+    segment?: "all" | "super_large" | "large" | "non_large" | "pending";
+  };
+
   type listEventsParams = {
     uid?: string | null;
     stream?: string | null;
@@ -952,6 +1136,10 @@ declare namespace API {
     uid?: string | null;
     mode?: string | null;
     stream?: string | null;
+  };
+
+  type listTaskExecutionsParams = {
+    task_id: string;
   };
 
   type NormalizedRunRequest = {
@@ -1090,21 +1278,6 @@ declare namespace API {
     total: number;
   };
 
-  type RunRequest = {
-    /** Mode */
-    mode?: string;
-    /** Uid */
-    uid?: string | null;
-    /** Start */
-    start?: string | null;
-    /** End */
-    end?: string | null;
-    /** Interval */
-    interval?: string | null;
-    /** Offline */
-    offline?: boolean;
-  };
-
   type RunResponse = {
     /** Run Id */
     run_id: string;
@@ -1181,8 +1354,284 @@ declare namespace API {
     recovery_link_unavailable: boolean;
   };
 
+  type searchSenderCandidatesParams = {
+    keyword?: string;
+    offset?: number;
+    limit?: number;
+  };
+
+  type SenderCandidate = {
+    /** Uid */
+    uid: string;
+    /** Source */
+    source: string;
+    /** Sender Id */
+    sender_id: string;
+    /** Conversation Id */
+    conversation_id: string;
+    /** Sender Name */
+    sender_name: string;
+    /** Conversation Name */
+    conversation_name: string;
+    /** Message Count */
+    message_count: number;
+    /** Last Seen At */
+    last_seen_at: string;
+    /** Sender Kind */
+    sender_kind: "human" | "bot" | "unknown";
+    /** Rule Id */
+    rule_id: string;
+    /** Configured */
+    configured: boolean;
+  };
+
+  type SenderCandidateList = {
+    /** Items */
+    items: SenderCandidate[];
+    /** Total */
+    total: number;
+  };
+
+  type SenderRule = {
+    /** Uid */
+    uid: string;
+    /** Source */
+    source: string;
+    /** Sender Id */
+    sender_id: string;
+    /** Conversation Id */
+    conversation_id?: string | null;
+    /** Kind */
+    kind?: "human" | "bot" | "unknown";
+    /** Label */
+    label?: string;
+    /** Basis */
+    basis: string;
+    /** Enabled */
+    enabled?: boolean;
+  };
+
+  type SenderRuleList = {
+    /** Version */
+    version: string;
+    /** Items */
+    items: SenderRuleResponse[];
+  };
+
+  type SenderRuleResponse = {
+    /** Uid */
+    uid: string;
+    /** Source */
+    source: string;
+    /** Sender Id */
+    sender_id: string;
+    /** Conversation Id */
+    conversation_id: string | null;
+    /** Kind */
+    kind: "human" | "bot" | "unknown";
+    /** Label */
+    label: string;
+    /** Basis */
+    basis: string;
+    /** Enabled */
+    enabled: boolean;
+    /** Rule Id */
+    rule_id: string;
+  };
+
+  type SenderRuleSave = {
+    /** Expected Version */
+    expected_version: string;
+    /** Rule Id */
+    rule_id?: string | null;
+    rule: SenderRule;
+  };
+
   type submitFieldDecisionParams = {
     event_id: string;
+  };
+
+  type TaskAction = {
+    /** Action */
+    action: "run" | "pause" | "resume";
+  };
+
+  type taskActionParams = {
+    task_id: string;
+  };
+
+  type TaskConfig = {
+    /** Name */
+    name: string;
+    /** Operation */
+    operation?: "sync" | "analyze";
+    /** Scope */
+    scope?: "levels" | "selected";
+    /** Levels */
+    levels?: string[];
+    /** Uids */
+    uids?: string[];
+    /** Include New */
+    include_new?: boolean;
+    /** Excluded Uids */
+    excluded_uids?: string[];
+    /** Excluded Groups */
+    excluded_groups?: string[];
+    /** Mode */
+    mode?: "manual" | "automatic";
+    /** Frequency */
+    frequency?: "5m" | "15m" | "1h" | "1d";
+    /** Interval */
+    interval?: "5m" | "15m" | "1h" | "1d";
+    /** Start Mode */
+    start_mode?: "specified" | "activation";
+    /** Start */
+    start?: string | null;
+    /** End */
+    end?: string | null;
+    /** Profile Ttl */
+    profile_ttl?: "5m" | "15m" | "1h" | "6h" | "1d";
+    /** Lookback */
+    lookback?: "5m" | "15m" | "1h" | "6h" | "1d" | "2d";
+    /** Retries */
+    retries?: number;
+    /** Retry Delay */
+    retry_delay?: "1m" | "5m" | "15m";
+  };
+
+  type TaskCustomerProgress = {
+    /** Uid */
+    uid: string;
+    /** Level */
+    level: string | null;
+    /** Status */
+    status: string;
+    /** Reason */
+    reason: string | null;
+    /** Run Id */
+    run_id: string | null;
+    /** Stream */
+    stream: string;
+    /** Processed */
+    processed: number;
+    /** Created */
+    created: number;
+    /** Updated */
+    updated: number;
+    /** Completed Windows */
+    completed_windows: number;
+    /** Total Windows */
+    total_windows: number;
+  };
+
+  type TaskExecutionHead = {
+    /** Execution Id */
+    execution_id: string;
+    /** Task Id */
+    task_id: string;
+    /** Status */
+    status: "queued" | "running" | "succeeded" | "partial" | "failed";
+    /** Stage */
+    stage: "discovery" | "analysis" | "completed";
+    /** Created At */
+    created_at: string;
+    /** Finished At */
+    finished_at: string | null;
+  };
+
+  type TaskExecutionList = {
+    /** Items */
+    items: TaskExecutionHead[];
+    /** Total */
+    total: number;
+  };
+
+  type TaskExecutionResponse = {
+    /** Execution Id */
+    execution_id: string;
+    /** Task Id */
+    task_id: string;
+    /** Status */
+    status: "queued" | "running" | "succeeded" | "partial" | "failed";
+    /** Stage */
+    stage: "discovery" | "analysis" | "completed";
+    /** Created At */
+    created_at: string;
+    /** Finished At */
+    finished_at: string | null;
+    config: TaskConfig;
+    /** Start */
+    start: string;
+    /** End */
+    end: string;
+    /** Error */
+    error: string | null;
+    /** Source Messages */
+    source_messages: number;
+    /** Source Errors */
+    source_errors: number;
+    /** Processed */
+    processed: number;
+    /** Created Events */
+    created_events: number;
+    /** Updated Events */
+    updated_events: number;
+    /** Sync Completed */
+    sync_completed: number;
+    /** Sync Total */
+    sync_total: number;
+    /** Customers */
+    customers: TaskCustomerProgress[];
+  };
+
+  type TaskList = {
+    /** Items */
+    items: TaskResponse[];
+    /** Total */
+    total: number;
+  };
+
+  type TaskPreview = {
+    /** Items */
+    items: TaskPreviewCustomer[];
+    /** Total */
+    total: number;
+    /** Notice */
+    notice: string;
+  };
+
+  type TaskPreviewCustomer = {
+    /** Uid */
+    uid: string;
+    /** Level */
+    level: string | null;
+    /** Tam */
+    tam: string | null;
+  };
+
+  type TaskResponse = {
+    /** Task Id */
+    task_id: string;
+    config: TaskConfig;
+    /** Enabled */
+    enabled: boolean;
+    /** Version */
+    version: number;
+    /** Cursor At */
+    cursor_at: string | null;
+    /** Next Run At */
+    next_run_at: string | null;
+    /** Created At */
+    created_at: string;
+    /** Updated At */
+    updated_at: string;
+    latest: TaskExecutionHead | null;
+  };
+
+  type TaskUpdate = {
+    config: TaskConfig;
+    /** Version */
+    version: number;
   };
 
   type TimeWindow = {
@@ -1190,6 +1639,10 @@ declare namespace API {
     start: string;
     /** End */
     end: string;
+  };
+
+  type updateTaskParams = {
+    task_id: string;
   };
 
   type WatermarkResponse = {

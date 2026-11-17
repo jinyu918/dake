@@ -62,7 +62,7 @@ class IncrementalService:
 
         if window.start < self.settings.start:
             raise ValueError("处理窗口不能早于配置的起始时间")
-        # 官方接口只有日期精度；回查近期日期，容纳晚于发送时间入库的消息。
+        # 按独立补漏范围回查近期窗口，容纳晚于发送时间入库的消息。
         kinds = load_sender_kinds(self.settings.data_dir)
         roles = load_sender_roles(self.settings.data_dir)
         fingerprint = kinds_fingerprint(kinds)

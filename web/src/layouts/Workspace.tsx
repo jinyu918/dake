@@ -1,9 +1,15 @@
-import { Activity, Layers3, Menu, PanelLeftClose } from 'lucide-react';
+import {
+  Activity,
+  Bot,
+  Layers3,
+  Menu,
+  PanelLeftClose,
+  UsersRound,
+} from 'lucide-react';
 import { createContext, useContext, useState } from 'react';
 import { Link, NavLink, Outlet } from 'umi';
 import { Dialog, DialogContent, DialogHeading } from '@/components/ui/dialog';
 import { useResource } from '@/lib/useResource';
-import { progressUrl } from '@/pages/runs/progress';
 import { api } from '@/services/api';
 
 type WorkspaceValue = ReturnType<typeof useResource<API.ConfigResponse>>;
@@ -18,23 +24,26 @@ export function useWorkspace() {
 
 /** 桌面固定侧栏，窄屏用可访问弹层保留同一导航。 */
 export default function Workspace() {
-  const resource = useResource('workspace-config', api.config, 30000);
+  // 客户计数与事件列表保持相同刷新频率，让首次产出的事件及时进入全部客户视图。
+  const resource = useResource('workspace-config', api.config, 5000);
   const [open, setOpen] = useState(false);
-  const params = new URLSearchParams(location.search);
-  const uid = params.get('uid') || resource.data?.uid || '';
-  const stream =
-    params.get('stream') ||
-    resource.data?.customers.find((item) => item.uid === uid)?.stream ||
-    '';
   const navigation = (
     <nav className="main-nav" aria-label="工作台导航">
       <NavLink to="/events" onClick={() => setOpen(false)}>
         <Layers3 size={17} />
-        事件
+        工作台
       </NavLink>
-      <NavLink to={progressUrl(uid, stream)} onClick={() => setOpen(false)}>
+      <NavLink to="/customers" onClick={() => setOpen(false)}>
+        <UsersRound size={17} />
+        客户管理
+      </NavLink>
+      <NavLink to="/tasks" onClick={() => setOpen(false)}>
         <Activity size={17} />
-        运行进度
+        任务中心
+      </NavLink>
+      <NavLink to="/settings/bots" onClick={() => setOpen(false)}>
+        <Bot size={17} />
+        机器人筛选
       </NavLink>
     </nav>
   );

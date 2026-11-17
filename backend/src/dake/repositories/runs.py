@@ -102,14 +102,19 @@ class RunRepository:
                 result.pop(name, None)
         return result
 
-    def create(self, request: dict, total_windows: int) -> dict:
+    def create(self, request: dict, total_windows: int, *, run_id=None) -> dict:
         """在跨进程提交锁内检查同客户冲突与队列上限，再保存待执行任务。"""
-        run_id = str(uuid4())
+        run_id = run_id or str(uuid4())
         with self.connection() as store:
             rows, _ = store._execute("SELECT GET_LOCK(%s,10) AS ok", (self.submit_lock,))
             if not rows or rows[0]["ok"] != 1:
                 raise RunConflict("任务提交繁忙，请稍后重试")
             try:
+                existing, _ = store._execute("SELECT * FROM processing_runs WHERE run_id=%s", (run_id,))
+                if existing:
+                    if existing[0]["uid"] != request["uid"] or existing[0]["mode"] != request["mode"]:
+                        raise RunConflict("子任务身份冲突")
+                    return self._record(existing[0])
                 rows, _ = store._execute("SELECT uid FROM processing_runs WHERE status IN ('queued','running')")
                 if any(row["uid"] == request["uid"] for row in rows):
                     raise RunConflict("该客户已有等待或执行中的任务")
@@ -266,6 +271,26 @@ class RunRepository:
                 (_encoded(cycle), run_id, runner_id))
         if not changed:
             raise StorageError("任务执行权已变化，已停止保存进度")
+
+    def has_interrupted_range(self, uid, start, end):
+        """存在旧的中断窗口时保留原收据恢复路径，不把未展示结果当空窗口跳过。"""
+        with self.connection() as store:
+            rows, _ = store._execute("SELECT run_id FROM processing_runs WHERE uid=%s AND status='failed' "
+                "AND current_window IS NOT NULL AND JSON_UNQUOTE(JSON_EXTRACT(current_window,'$.start')) < %s "
+                "AND JSON_UNQUOTE(JSON_EXTRACT(current_window,'$.end')) > %s LIMIT 1", (uid, end, start))
+        return bool(rows)
+
+    def complete_empty_windows(self, run_id, runner_id, start_index, cycles):
+        """原子写入空窗口检查结果；重复提交或执行权变化时不重复推进。"""
+        if not cycles:
+            return
+        with self.connection() as store:
+            _, changed = store._execute("UPDATE processing_runs SET cycles=JSON_MERGE_PRESERVE(cycles,CAST(%s AS JSON)), "
+                "completed_windows=completed_windows+%s,current_window=NULL,current_baseline=NULL "
+                "WHERE run_id=%s AND status='running' AND runner_id=%s AND completed_windows=%s",
+                (_encoded(cycles), len(cycles), run_id, runner_id, start_index))
+        if not changed:
+            raise StorageError("空窗口进度或执行权已变化，停止重复推进")
 
     def finish(self, run_id: str, runner_id: str, *, error: str | None = None):
         """成功或失败都写明确终态；错误必须由调用方提供固定的脱敏文本。"""

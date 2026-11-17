@@ -8,7 +8,28 @@ import {
   listEvents,
   submitFieldDecision,
 } from './generated/events';
-import { createRun, getRun, listRuns } from './generated/runs';
+import { getRun, listRuns } from './generated/runs';
+import {
+  createCustomerSync,
+  getCustomerSync,
+  listCustomerGroups,
+  listCustomerProfiles,
+  listCustomerSyncs,
+} from './generated/customers';
+import {
+  listSenderRules,
+  saveSenderRule,
+  searchSenderCandidates,
+} from './generated/senderRules';
+import {
+  createTask,
+  getTaskExecution,
+  listTaskExecutions,
+  listTasks,
+  previewTask,
+  taskAction,
+  updateTask,
+} from './generated/tasks';
 
 /** 页面通过生成客户端访问唯一后端契约；这里仅提供稳定、简短的业务入口。 */
 export const api = {
@@ -42,6 +63,41 @@ export const api = {
       uid,
       stream,
     }),
+  senderRules: (signal?: AbortSignal) => listSenderRules({ signal }),
+  senderCandidates: (keyword: string, offset: number, signal?: AbortSignal) =>
+    searchSenderCandidates({ keyword, offset, limit: 25 }, { signal }),
+  saveSenderRule: (body: API.SenderRuleSave) => saveSenderRule(body),
+  tasks: (signal?: AbortSignal) => listTasks({ signal }),
+  createTask: (body: API.TaskConfig) => createTask(body),
+  updateTask: (taskId: string, body: API.TaskUpdate) =>
+    updateTask({ task_id: taskId }, body),
+  taskAction: (taskId: string, action: API.TaskAction['action']) =>
+    taskAction({ task_id: taskId }, { action }),
+  taskExecutions: (taskId: string, signal?: AbortSignal) =>
+    listTaskExecutions({ task_id: taskId }, { signal }),
+  taskExecution: (id: string, signal?: AbortSignal) =>
+    getTaskExecution({ execution_id: id }, { signal }),
+  previewTask: (body: API.TaskConfig, signal?: AbortSignal) =>
+    previewTask(body, { signal }),
+  customers: (
+    offset: number,
+    keyword: string,
+    segment: API.listCustomerProfilesParams['segment'],
+    signal?: AbortSignal,
+    limit = 50,
+  ) => listCustomerProfiles({ offset, limit, keyword, segment }, { signal }),
+  customerGroups: (
+    uid: string | undefined,
+    review: boolean,
+    offset: number,
+    signal?: AbortSignal,
+  ) => listCustomerGroups({ uid, review, offset, limit: 50 }, { signal }),
+  customerSyncs: (signal?: AbortSignal) => listCustomerSyncs({ signal }),
+  customerSync: (runId: string, signal?: AbortSignal) =>
+    getCustomerSync({ run_id: runId }, { signal }),
+  createCustomerSync: (
+    body: API.CustomerSyncRequest,
+  ): Promise<API.CustomerSyncResponse> => createCustomerSync(body),
   config: (signal?: AbortSignal) => getConfig({ signal }),
   events: (uid: string, stream: string, type: string, signal?: AbortSignal) =>
     listEvents(
@@ -76,5 +132,4 @@ export const api = {
     stream: string,
     signal?: AbortSignal,
   ) => getRun({ run_id: runId, uid, stream }, { signal }),
-  createRun: (body: API.RunRequest) => createRun(body),
 };

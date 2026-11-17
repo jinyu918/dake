@@ -1,4 +1,4 @@
-"""官方聊天接口的 HTTP 客户端，只负责日期粒度取数，不依赖业务事件。"""
+"""官方聊天接口的 HTTP 客户端，负责日期及分钟窗口取数，不依赖业务事件。"""
 
 from datetime import date, datetime
 from http.client import HTTPException
@@ -8,6 +8,8 @@ import socket
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+
+from ..domain.models import TZ, Window
 
 
 OFFICIAL_URL = "https://ts.qiniu.io/api/mars_alert/qq/chatRecords"
@@ -24,11 +26,26 @@ def validate_uid(uid: str) -> None:
 
 
 def validate_dates(start: date, end: date) -> None:
-    """官方参数只有日期，含首尾；不在这里假设小时级取数协议。"""
+    """验证兼容日期调用的含首尾参数。"""
     if not all(isinstance(item, date) and not isinstance(item, datetime) for item in (start, end)):
         raise ValueError("取数参数必须是日期，不是时间戳")
     if start > end:
         raise ValueError("取数起始日期不能晚于结束日期")
+
+
+def window_parameters(start: datetime, end: datetime, uid: str | None = None) -> dict:
+    """按上海时区生成分钟参数；覆盖完整业务窗口，精确边界由适配器过滤。"""
+    Window(start, end)
+    if start.utcoffset() is None or end.utcoffset() is None:
+        raise ValueError("取数窗口必须带有效时区")
+    parameters = {
+        "start": start.astimezone(TZ).strftime("%Y-%m-%d %H:%M"),
+        "end": end.astimezone(TZ).strftime("%Y-%m-%d %H:%M"),
+    }
+    if uid is not None:
+        validate_uid(uid)
+        parameters["uid"] = uid
+    return parameters
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -55,13 +72,25 @@ class ChatRecordsClient:
         """获取闭区间内原始响应；仅重试暂时性 HTTP 错误和有限次网络失败。"""
         validate_uid(uid)
         validate_dates(start, end)
-        body = json.dumps({"uid": uid, "start": start.isoformat(), "end": end.isoformat()}).encode("utf-8")
+        return self._post({"uid": uid, "start": start.isoformat(), "end": end.isoformat()})
+
+    def fetch_window(self, start: datetime, end: datetime, uid: str | None = None) -> dict:
+        """读取分钟窗口原始响应；不传 UID 时读取跨客户消息，不推进任何业务状态。"""
+        return self._post(window_parameters(start, end, uid))
+
+    def _post(self, parameters: dict) -> dict:
+        """日期和分钟调用共用网络校验与有界重试。"""
+        return self._request(self.url, "POST", parameters)
+
+    def _request(self, url: str, method: str, parameters: dict | None = None) -> dict:
+        """官方客户端共用传输，不跟随重定向或输出响应正文。"""
+        body = json.dumps(parameters).encode("utf-8") if parameters is not None else None
         for attempt in range(self.retries + 1):
             request = Request(
-                self.url,
+                url,
                 data=body,
                 headers={"Content-Type": "application/json;charset=UTF-8", "Accept": "application/json"},
-                method="POST",
+                method=method,
             )
             try:
                 with self._opener.open(request, timeout=self.timeout) as response:

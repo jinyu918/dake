@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from ..domain.models import SenderKind, SenderRole, normalize_classification
 from ..domain.fields import FieldIssue, FieldOperation, FieldState, FieldTarget
 from ..domain.identity import IdentityCorrectionOperation
+from ..domain.customer_policy import CustomerSegment
 
 
 class APIModel(BaseModel):
@@ -438,16 +439,28 @@ class CycleResponse(APIModel):
     filter_audit: list[dict[str, JsonValue]] = Field(default_factory=list)
     recovered_from_history: bool = False
     counts_complete: bool = True
+    skipped_empty: bool = False
 
 
 class CustomerResponse(APIModel):
-    """官方来源客户的消息、事件统计和分析范围。"""
+    """官方来源客户的消息、事件统计、等级分层和分析范围。"""
+
+    model_config = ConfigDict(extra="ignore", json_schema_serialization_defaults_required=False)
 
     uid: str
     label: str
     message_count: int
     event_count: int
     stream: str
+    level: str | None = None
+    level_state: str = "unknown"
+    segment: CustomerSegment = "pending"
+    is_super_large: bool = False
+    tam: str | None = None
+    tam_b: str | None = None
+    group_count: int = 0
+    group_names: list[str] = Field(default_factory=list)
+    latest_event_time: str | None = None
 
 
 class ConfigResponse(APIModel):
@@ -465,18 +478,6 @@ class ConfigResponse(APIModel):
     event_types: list[str]
     provider: Literal["stub", "xhub"] = "stub"
     customers: list[CustomerResponse]
-
-
-class RunRequest(APIModel):
-    """提交有限时间范围的回放，官方输入默认只读本地缓存。"""
-
-    model_config = ConfigDict(extra="forbid")
-    mode: Literal["official"] = "official"
-    uid: str | None = Field(default=None, min_length=1, max_length=128)
-    start: str | None = Field(default=None, min_length=1, max_length=64)
-    end: str | None = Field(default=None, min_length=1, max_length=64)
-    interval: str | None = Field(default=None, min_length=2, max_length=16)
-    offline: bool = True
 
 
 class NormalizedRunRequest(APIModel):
@@ -537,3 +538,108 @@ class ErrorResponse(APIModel):
     """统一安全错误格式，避免验证错误回显请求或聊天内容。"""
 
     detail: str
+
+
+class CustomerProfile(APIModel):
+    """已保存客户资料及统一等级分类，未知与刷新失败分别展示。"""
+
+    segment: CustomerSegment
+    is_super_large: bool = False
+    uid: str
+    level: str | None = None
+    rank_value: str | None = None
+    tam: str | None = None
+    tam_b: str | None = None
+    level_state: str
+    tam_state: str
+    level_error: str | None = None
+    tam_error: str | None = None
+    level_synced_at: str | None = None
+    tam_synced_at: str | None = None
+    attempted_at: str
+    created_at: str
+    updated_at: str
+    group_count: int
+
+
+class CustomerProfileList(APIModel):
+    """客户分页列表。"""
+
+    items: list[CustomerProfile]
+    total: int
+
+
+class CustomerGroup(APIModel):
+    """群归属与候选依据，不含聊天正文。"""
+
+    source: str
+    group_id: str
+    group_name: str
+    uid: str | None = None
+    status: Literal["confirmed", "review"]
+    reason: str
+    candidate_uids: list[str]
+    first_seen_at: str
+    last_seen_at: str
+    synced_at: str
+
+
+class CustomerGroupList(APIModel):
+    """群映射分页列表。"""
+
+    items: list[CustomerGroup]
+    total: int
+
+
+class CustomerSyncRequest(APIModel):
+    """手动同步所选上海时间范围，不触发分析。"""
+
+    model_config = ConfigDict(extra="forbid")
+    start: str = Field(min_length=1, max_length=64)
+    end: str = Field(min_length=1, max_length=64)
+
+
+class CustomerSyncScope(APIModel):
+    """冻结的同步窗口设置。"""
+
+    start: str
+    end: str
+    interval: str
+
+
+class CustomerSyncCycle(APIModel):
+    """已实际提交的周期计数，不代表累计客户数。"""
+
+    window: TimeWindow
+    messages: int
+    groups: int
+    customers: int
+    new_customers: int
+    refreshed_customers: int
+    new_groups: int
+    review_groups: int
+    profile_errors: int
+    lookup_errors: int
+
+
+class CustomerSyncResponse(APIModel):
+    """复用持久任务的客户同步进度。"""
+
+    run_id: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    request: CustomerSyncScope
+    total_windows: int
+    completed_windows: int
+    current_window: TimeWindow | None = None
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    cycles: list[CustomerSyncCycle] = Field(default_factory=list)
+
+
+class CustomerSyncList(APIModel):
+    """客户同步记录列表。"""
+
+    items: list[CustomerSyncResponse]
+    total: int

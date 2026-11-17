@@ -15,10 +15,3 @@ export function currentRun(items: API.RunResponse[]) {
     items[0]
   );
 }
-
-export function progressUrl(uid: string, stream: string) {
-  const params = new URLSearchParams();
-  if (uid) params.set('uid', uid);
-  if (stream) params.set('stream', stream);
-  return `/runs${params.size ? `?${params}` : ''}`;
-}

@@ -17,21 +17,6 @@ export async function listRuns(
   });
 }
 
-/** Create Run 校验工作量后保存任务，处理在后台逐周期执行。 POST /api/v1/runs */
-export async function createRun(
-  body: API.RunRequest,
-  options?: { signal?: AbortSignal }
-) {
-  return request<any>("/api/v1/runs", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    data: body,
-    ...(options || {}),
-  });
-}
-
 /** Get Run 返回持久化进度、失败原因及已完成周期，刷新页面不会丢失。 GET /api/v1/runs/${param0} */
 export async function getRun(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

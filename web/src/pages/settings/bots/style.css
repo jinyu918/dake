@@ -1,0 +1,138 @@
+.bot-rules-page {
+  max-width: 1560px;
+}
+.bot-policy-note {
+  display: flex;
+  gap: 14px;
+  padding: 18px 22px;
+  border: 1px solid #e7dfc6;
+  border-radius: 12px;
+  background: #fbfaf5;
+  color: #665625;
+}
+.bot-policy-note p {
+  margin: 7px 0 0;
+  color: #777268;
+  font-size: 14px;
+}
+.bot-rule-tabs,
+.bot-search-form,
+.bot-paging,
+.bot-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.bot-rule-tabs {
+  margin: 24px 0 18px;
+  padding: 0;
+  border: 0;
+}
+.bot-search-form {
+  max-width: 760px;
+}
+.bot-search-form input {
+  flex: 1;
+  min-width: 150px;
+}
+.bot-search-help {
+  color: #78787f;
+  font-size: 13px;
+  margin: 12px 0 18px;
+}
+.bot-table-panel {
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid #e9e9ed;
+  border-radius: 12px;
+}
+.bot-rule-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+.bot-rule-table th {
+  font-weight: 500;
+  color: #77777e;
+  background: #fbfbfc;
+  white-space: nowrap;
+}
+.bot-rule-table th,
+.bot-rule-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid #eeeef1;
+}
+.bot-rule-table tr:last-child td {
+  border-bottom: 0;
+}
+.bot-rule-table small,
+.bot-account-summary small {
+  display: block;
+  margin-top: 6px;
+  color: #87878e;
+  overflow-wrap: anywhere;
+  max-width: 330px;
+}
+.bot-row-actions {
+  white-space: nowrap;
+}
+.bot-row-actions button + button {
+  margin-left: 8px;
+}
+.bot-empty {
+  color: #8b8b92;
+  text-align: center;
+}
+.bot-save-notice {
+  color: #2d7345;
+  font-size: 14px;
+}
+.bot-paging {
+  margin-top: 16px;
+  justify-content: flex-end;
+  color: #83838b;
+  font-size: 13px;
+}
+.bot-rule-dialog {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border-radius: 13px;
+  padding: 28px;
+}
+.bot-rule-form {
+  display: grid;
+  gap: 18px;
+}
+.bot-rule-form label {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+}
+.bot-rule-form select {
+  border: 1px solid #dddde3;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px 12px;
+  width: 100%;
+}
+.bot-rule-form .bot-enable-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bot-dialog-actions {
+  justify-content: flex-end;
+}
+@media (max-width: 720px) {
+  .bot-search-form {
+    flex-wrap: wrap;
+  }
+  .bot-rule-table {
+    min-width: 720px;
+  }
+}

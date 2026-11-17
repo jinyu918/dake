@@ -1,11 +1,14 @@
-import { DayPicker } from '@daypicker/react';
 import { zhCN } from '@daypicker/react/locale';
-import * as Popover from '@radix-ui/react-popover';
-import { CalendarDays, ChevronDown } from 'lucide-react';
+import { ArrowRight, CalendarDays, Check, ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 import { messageDay } from './eventTimeRange';
-import '@daypicker/react/style.css';
 
 export const timeRanges = [
   { value: '', label: '全部时间', days: 0 },
@@ -14,6 +17,12 @@ export const timeRanges = [
   { value: '7d', label: '近 7 天', days: 7 },
   { value: 'custom', label: '自定义', days: 0 },
 ];
+
+const dateInputClass =
+  'block w-full min-w-0 text-xs text-zinc-800 tabular-nums outline-hidden [&::-webkit-calendar-picker-indicator]:hidden';
+const dateLabelClass =
+  'min-w-0 rounded-sm px-1.5 py-0.5 text-[11px] focus-within:bg-white focus-within:ring-1 focus-within:ring-zinc-400';
+
 /** 日历只表示日期，不进行业务消息的时区转换。 */
 function parseDay(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
@@ -74,145 +83,168 @@ export function EventTimeFilter({
     setMonth(parseDay(dates[0] || anchorDate) || new Date());
   }
   return (
-    <Popover.Root
+    <Popover
       open={open}
       onOpenChange={(value) => {
         if (value) resetDraft(mode);
         setOpen(value);
       }}
     >
-      <Popover.Trigger asChild>
-        <button
-          className="time-filter-trigger"
-          type="button"
-          aria-label={`时间范围：${label}`}
-        >
+      <PopoverTrigger asChild>
+        <Button aria-label={`时间范围：${label}`}>
           <CalendarDays size={15} />
           <span>{label}</span>
           <ChevronDown size={14} />
-        </button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content
-          className="time-filter-popover"
-          align="start"
-          sideOffset={8}
-          collisionPadding={12}
-          aria-label="选择时间范围"
-        >
-          <header>
-            <strong>选择时间范围</strong>
-            <p>按事件最后关联消息时间 · 上海时区</p>
-          </header>
-          <div className="time-filter-presets">
-            {timeRanges
-              .filter((item) => item.value !== 'custom')
-              .map((item) => (
-                <button
-                  type="button"
-                  key={item.value}
-                  aria-pressed={draftMode === item.value}
-                  disabled={Boolean(item.days && !anchorDate)}
-                  onClick={() => resetDraft(item.value)}
-                >
-                  {item.label}
-                </button>
-              ))}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-[min(408px,calc(100vw-24px))] p-0"
+        align="start"
+        sideOffset={8}
+        collisionPadding={12}
+        aria-label="选择时间范围"
+      >
+        <div className="grid min-[440px]:grid-cols-[116px_minmax(0,1fr)]">
+          <div className="flex flex-col justify-between gap-2 border-b border-zinc-100 bg-zinc-50 p-2.5 min-[440px]:border-r min-[440px]:border-b-0">
+            <fieldset
+              className="grid grid-cols-4 gap-1 min-[440px]:grid-cols-1"
+              aria-label="快捷范围"
+            >
+              {timeRanges
+                .filter((item) => item.value !== 'custom')
+                .map((item) => (
+                  <button
+                    type="button"
+                    key={item.value}
+                    className="flex h-8 items-center justify-center gap-1 rounded-md px-1 text-xs whitespace-nowrap text-zinc-600 enabled:hover:bg-zinc-100 disabled:opacity-50 aria-pressed:bg-amber-100 aria-pressed:font-medium aria-pressed:text-amber-950 min-[440px]:justify-between min-[440px]:px-2"
+                    aria-pressed={draftMode === item.value}
+                    disabled={Boolean(item.days && !anchorDate)}
+                    onClick={() => resetDraft(item.value)}
+                  >
+                    {item.label}
+                    {draftMode === item.value && (
+                      <Check
+                        size={13}
+                        className="hidden min-[440px]:block"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </button>
+                ))}
+            </fieldset>
+            <p className="px-1 text-[11px] text-zinc-500">
+              {anchorDate ? (
+                <>
+                  数据截至{' '}
+                  <time
+                    className="whitespace-nowrap min-[440px]:block"
+                    dateTime={anchorDate}
+                  >
+                    {anchorDate}
+                  </time>
+                </>
+              ) : (
+                '暂无数据'
+              )}
+            </p>
           </div>
-          <p className="time-filter-note">
-            快捷范围截至数据最新日
-            {anchorDate ? ` ${anchorDate}` : '（暂无数据）'}。
-          </p>
-          <div className="time-filter-inputs">
-            <label>
-              开始日期
-              <input
-                type="date"
-                aria-label="开始日期"
-                value={from}
-                onChange={(e) => {
-                  setDraftMode('custom');
-                  setFrom(e.target.value);
-                  if (parseDay(e.target.value))
-                    setMonth(parseDay(e.target.value));
-                }}
-              />
-            </label>
-            <span aria-hidden="true">—</span>
-            <label>
-              结束日期
-              <input
-                type="date"
-                aria-label="结束日期"
-                value={to}
-                onChange={(e) => {
-                  setDraftMode('custom');
-                  setTo(e.target.value);
-                }}
-              />
-            </label>
+          <div className="min-w-0 space-y-2.5 p-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-1 text-zinc-500">
+              <label className={dateLabelClass}>
+                <span>开始日期</span>
+                <input
+                  className={dateInputClass}
+                  type="date"
+                  aria-invalid={invalid || undefined}
+                  value={from}
+                  onChange={(e) => {
+                    const date = parseDay(e.target.value);
+                    setDraftMode('custom');
+                    setFrom(e.target.value);
+                    if (date) setMonth(date);
+                  }}
+                />
+              </label>
+              <ArrowRight size={14} aria-hidden="true" />
+              <label className={dateLabelClass}>
+                <span>结束日期</span>
+                <input
+                  className={dateInputClass}
+                  type="date"
+                  aria-invalid={invalid || undefined}
+                  value={to}
+                  onChange={(e) => {
+                    setDraftMode('custom');
+                    setTo(e.target.value);
+                  }}
+                />
+              </label>
+            </div>
+            <Calendar
+              mode="range"
+              locale={zhCN}
+              weekStartsOn={1}
+              fixedWeeks
+              resetOnSelect
+              month={month}
+              onMonthChange={setMonth}
+              selected={
+                parseDay(from)
+                  ? { from: parseDay(from), to: parseDay(to) }
+                  : undefined
+              }
+              onSelect={(value) => {
+                setDraftMode('custom');
+                setFrom(value?.from ? dateKey(value.from) : '');
+                setTo(value?.to ? dateKey(value.to) : '');
+              }}
+              labels={{
+                labelPrevious: () => '上个月',
+                labelNext: () => '下个月',
+              }}
+            />
+            {invalid && (
+              <p className="text-xs text-red-700" role="alert">
+                开始日期不能晚于结束日期。
+              </p>
+            )}
           </div>
-          <DayPicker
-            mode="range"
-            locale={zhCN}
-            weekStartsOn={1}
-            month={month}
-            onMonthChange={setMonth}
-            selected={
-              parseDay(from)
-                ? { from: parseDay(from), to: parseDay(to) }
-                : undefined
-            }
-            onSelect={(value) => {
-              setDraftMode('custom');
-              setFrom(value?.from ? dateKey(value.from) : '');
-              setTo(value?.to ? dateKey(value.to) : '');
+        </div>
+        <footer className="flex items-center justify-between gap-2 border-t border-zinc-100 p-2.5">
+          <Button
+            variant="ghost"
+            size="small"
+            disabled={!mode && !draftMode}
+            onClick={() => {
+              onApply({ range: '', startDate: '', endDate: '', event: '' });
+              setOpen(false);
             }}
-            labels={{
-              labelPrevious: () => '上个月',
-              labelNext: () => '下个月',
-            }}
-          />
-          <p className="time-filter-note" role={invalid ? 'alert' : undefined}>
-            {invalid
-              ? '日期范围无效，开始日期不能晚于结束日期。'
-              : incomplete
-                ? '请选择开始和结束日期，可选择同一天。'
-                : '包含开始和结束当天的全部消息时间。'}
-          </p>
-          <footer>
+          >
+            清除筛选
+          </Button>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="small" onClick={() => setOpen(false)}>
+              取消
+            </Button>
             <Button
-              variant="ghost"
+              variant="primary"
+              size="small"
+              disabled={invalid || incomplete}
               onClick={() => {
-                onApply({ range: '', startDate: '', endDate: '', event: '' });
+                onApply({
+                  range: draftMode,
+                  startDate: draftMode === 'custom' ? from : '',
+                  endDate: draftMode === 'custom' ? to : '',
+                  event: '',
+                });
                 setOpen(false);
               }}
             >
-              清除筛选
+              应用
             </Button>
-            <div>
-              <Button variant="ghost" onClick={() => setOpen(false)}>
-                取消
-              </Button>
-              <Button
-                variant="primary"
-                disabled={invalid || incomplete}
-                onClick={() => {
-                  onApply({
-                    range: draftMode,
-                    startDate: draftMode === 'custom' ? from : '',
-                    endDate: draftMode === 'custom' ? to : '',
-                    event: '',
-                  });
-                  setOpen(false);
-                }}
-              >
-                应用
-              </Button>
-            </div>
-          </footer>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover.Root>
+          </div>
+        </footer>
+      </PopoverContent>
+    </Popover>
   );
 }

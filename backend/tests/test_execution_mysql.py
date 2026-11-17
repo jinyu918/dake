@@ -45,6 +45,7 @@ def explicit_isolation(request, monkeypatch):
     monkeypatch.setattr(Settings, "load", forbidden)
     monkeypatch.setattr(XHubProvider, "extract", forbidden)
     monkeypatch.setattr(OfficialChatSource, "load_day", forbidden)
+    monkeypatch.setattr(OfficialChatSource, "load_window", forbidden)
     monkeypatch.setattr("dake.config.dotenv_values", forbidden)
     return target
 
@@ -436,6 +437,151 @@ def test_field_decision_a36_http_roundtrip_concurrency_rollback_and_receipt(case
         assert not no_messages.processed and not no_messages.updated
         assert case.latest()["receipt"]["writes"] == []
         assert restore_receipt(case.service, case.latest()["receipt"]).to_dict() == no_messages.to_dict()
+def test_all_customer_timer_window_pause_failure_resume_and_empty_window(explicit_isolation, tmp_path, monkeypatch):
+    """真实队列和数据库验证自动任务；所有来源及模型输入均为现场合成。"""
+    from datetime import timedelta
+    from dake.config import PROJECT_ROOT, bound
+    from dake.repositories.customers import CustomerRepository
+    from dake.repositories.tasks import TaskRepository
+    from dake.services.customers import CustomerSyncService
+    from dake.services.tasks import TaskService
+    from test_ingestion import record
+    from test_ingestion_windows import window_payload
+
+    origin = bound("2026-11-16T10:00:00+08:00")
+    now = [origin + timedelta(minutes=30)]
+    monkeypatch.setattr("dake.repositories.tasks._now", lambda: now[0].replace(tzinfo=None))
+    uids = ["synthetic-timer-" + uuid4().hex for _ in range(4)]
+    settings = explicit_isolation.settings(tmp_path, uid=uids[0], start=origin, end=now[0])
+    runs, tasks, customers = RunRepository(settings), TaskRepository(settings), CustomerRepository(settings)
+    tasks.init_schema()
+    with runs.connection() as store:
+        for statement in (PROJECT_ROOT / "backend/migrations/003_customer_directory.sql").read_text().split(";"):
+            if statement.strip():
+                store._execute(statement)
+    fetched, analyzed = [], []
+    rows = []
+    for index, uid in enumerate(uids):
+        for minute in ([31] if index == 3 else [1, 16, 31]):
+            at = origin + timedelta(minutes=minute)
+            content = {1: "虚构工单 CASE-SYN-42 报告上传失败，等待排查。",
+                       16: "虚构工单 CASE-SYN-42 已复现报告上传失败。",
+                       31: "虚构工单 CASE-SYN-42 已增加日志，等待下一次复现。"}[minute]
+            rows.append((uid, at, record(str(uuid4().int), group=uid,
+                time=at.strftime("%Y-%m-%d %H:%M:%S"), content=content)))
+
+    class Chats:
+        def fetch_window(self, start, end):
+            fetched.append((start, end))
+            groups = [(uid, [row for owner, at, row in rows if owner == uid and start <= at < end]) for uid in uids]
+            groups = [(uid, items) for uid, items in groups if items]
+            result = window_payload(*groups, start=start, end=end)
+            if not groups:
+                result.update(total=0, groups=[])
+            return result
+
+    class Directory:
+        def level(self, uid):
+            return {"uid": uid, "level": ["L6", "L10", "L5", "L9"][uids.index(uid)]}
+
+        def tam(self, uid):
+            return {"uid": uid, "tam": "合成负责人", "tam_b": None}
+
+    class Provider(AttributionProvider):
+        def __init__(self):
+            super().__init__(name="stub-v1")
+
+        def extract(self, pending, context, events):
+            analyzed.append([(m.uid, m.sent_at) for m in pending])
+            return [candidate(m, "update" if events else "new", events[0].event_id if events else None,
+                evidence=context[:1], changes=[change(m)]) for m in pending]
+
+    @contextmanager
+    def analysis(configuration, **kwargs):
+        store = MySQLStore(**explicit_isolation.options())
+        try:
+            yield IncrementalService(store, FakeSource([]), Provider(), configuration,
+                attempts=AttemptRepository(configuration))
+        finally:
+            store.close()
+
+    runner = RunRunner(settings, runs, service_factory=analysis,
+        customer_factory=lambda s: CustomerSyncService(s, customers, Chats(), Directory()))
+    service = TaskService(settings, tasks, runs, customers, clock=lambda: now[0])
+    task = service.create(dict(name="合成全客户定时任务", mode="automatic", start=origin.isoformat(),
+        interval="15m", frequency="5m", retries=0, include_new=True))
+    tid = task["task_id"]
+    service.action(tid, "resume")
+
+    def step():
+        now[0] += timedelta(microseconds=1)
+        service.tick(force=True)
+        run = runs.claim_next(runner.runner_id)
+        if run:
+            runner.execute(run)
+
+    def complete(eid):
+        for _ in range(40):
+            if tasks.execution(eid)["status"] not in ("queued", "running"):
+                return
+            step()
+        pytest.fail("合成自动执行未在预期步数内结束")
+
+    service.tick(force=True)
+    first = tasks.executions(tid)[0]
+    step()
+    service.action(tid, "pause")
+    complete(first["execution_id"])
+    assert tasks.get(tid)["cursor_at"] == (origin + timedelta(minutes=15)).isoformat()
+    assert len(tasks.executions(tid)) == 1
+    assert max(end for _, end in fetched) == origin + timedelta(minutes=15)
+    with runs.connection() as store:
+        original_ids = {uid: [e.event_id for e in store.list_events(uid, "stub-v1")] for uid in uids}
+    assert len(original_ids[uids[0]]) == len(original_ids[uids[1]]) == 1
+    assert original_ids[uids[2]] == []
+
+    service.action(tid, "resume")
+    step()
+    step()
+    service.tick(force=True)
+    interrupted = runs.claim_next(runner.runner_id)
+    assert interrupted and interrupted["request"]["mode"] == "official"
+    failed_uid = interrupted["uid"]
+    runs.recover_interrupted()
+    service = TaskService(settings, TaskRepository(settings), RunRepository(settings), customers, clock=lambda: now[0])
+    service.action(tid, "pause")
+    second = tasks.executions(tid)[0]
+    complete(second["execution_id"])
+    assert tasks.execution(second["execution_id"])["status"] == "partial"
+
+    now[0] += timedelta(minutes=15)
+    service.action(tid, "resume")
+    step()
+    step()
+    service.tick(force=True)
+    third = tasks.executions(tid)[0]
+    child = next(c for c in third["state"]["children"] if c["uid"] == failed_uid)
+    assert runs.get(child["run_id"])["request"]["start"] == (origin + timedelta(minutes=15)).isoformat()
+    assert any(c["uid"] == uids[3] and c["status"] == "queued" for c in third["state"]["children"])
+    complete(third["execution_id"])
+    assert tasks.execution(third["execution_id"])["status"] == "succeeded"
+    with runs.connection() as store:
+        for uid in uids[:2]:
+            events = store.list_events(uid, "stub-v1")
+            assert [e.event_id for e in events] == original_ids[uid]
+            assert len(events[0].evidence) == 3
+            assert store.pending_messages(uid, origin, now[0], "stub-v1") == []
+    assert not any(uid == uids[2] for call in analyzed for uid, _ in call)
+
+    before = len(analyzed)
+    now[0] += timedelta(minutes=15)
+    service.tick(force=True)
+    fourth = tasks.executions(tid)[0]
+    complete(fourth["execution_id"])
+    assert tasks.execution(fourth["execution_id"])["status"] == "succeeded"
+    assert len(analyzed) == before
+    assert tasks.get(tid)["cursor_at"] == (origin + timedelta(hours=1)).isoformat()
+    service.action(tid, "pause")
 
 
 @pytest.mark.parametrize("failed_stage", ["input", "decision", "program_result", "commit"])

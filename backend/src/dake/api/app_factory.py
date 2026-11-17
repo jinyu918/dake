@@ -11,6 +11,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .dependencies import AppServices
 from .routes.events import router as events_router
 from .routes.runs import router as runs_router
+from .routes.customers import router as customers_router
+from .routes.tasks import router as tasks_router
+from .routes.sender_rules import router as sender_rules_router
+from ..services.sender_rules import SenderRuleService
+from ..repositories.tasks import TaskRepository
+from ..services.tasks import TaskService
+from ..repositories.customers import CustomerRepository
 from .schemas import ErrorResponse, HealthResponse
 from ..config import Settings
 from ..jobs.runner import RunRunner
@@ -20,16 +27,23 @@ from ..services.queries import QueryService
 
 
 def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=None,
-               runner=None, query_service=None,
-               start_worker=True) -> FastAPI:
+               runner=None, query_service=None, customer_repository=None,
+               task_repository=None, sender_rule_service=None, start_worker=True) -> FastAPI:
     """创建可测试的应用；仅导出 OpenAPI 时不会连接数据库或启动后台任务。"""
     runs = run_repository or RunRepository(settings, store_factory)
     worker = runner or RunRunner(settings, runs)
     queries = query_service or QueryService(settings, store_factory)
+    customers = customer_repository or CustomerRepository(settings, store_factory)
+    tasks = task_repository or TaskRepository(settings, store_factory)
+    task_service = TaskService(settings, tasks, runs, customers)
+    if isinstance(worker, RunRunner):
+        worker.coordinator = task_service
 
     @asynccontextmanager
     async def lifespan(application):
         runs.init_schema()
+        if task_repository is not None or isinstance(runs, RunRepository):
+            tasks.init_schema()
         if start_worker:
             worker.start()
         try:
@@ -41,7 +55,8 @@ def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=N
     application = FastAPI(title="大客售后事件系统", version="0.2.0", lifespan=lifespan,
                           responses={400: {"model": ErrorResponse}, 409: {"model": ErrorResponse},
                                      422: {"model": ErrorResponse}, 503: {"model": ErrorResponse}})
-    application.state.services = AppServices(settings, queries, runs, worker)
+    application.state.services = AppServices(settings, queries, runs, worker, customers, task_service,
+        sender_rule_service or SenderRuleService(settings))
     application.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.api_allowed_hosts))
 
     @application.middleware("http")
@@ -100,5 +115,8 @@ def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=N
 
     application.include_router(events_router)
     application.include_router(runs_router)
+    application.include_router(customers_router)
+    application.include_router(tasks_router)
+    application.include_router(sender_rules_router)
 
     return application

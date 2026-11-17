@@ -120,8 +120,12 @@ def test_openapi_has_named_operations_and_typed_models(api):
     client, _, _, _ = api
     schema = client.get("/openapi.json").json()
     operations = {item["operationId"] for path in schema["paths"].values() for item in path.values()}
-    assert operations == {"health", "get_config", "list_events", "get_event", "get_event_changes", "create_run", "list_runs", "get_run",
-                          "submit_field_decision", "get_field_decision", "correct_same_round", "get_same_round_correction"}
+    assert operations == {"health", "get_config", "list_events", "get_event", "get_event_changes", "list_runs", "get_run",
+                          "submit_field_decision", "get_field_decision", "correct_same_round", "get_same_round_correction",
+                          "list_customer_profiles", "list_customer_groups",
+                          "create_customer_sync", "list_customer_syncs", "get_customer_sync", "list_tasks", "create_task",
+                          "preview_task", "update_task", "task_action", "list_task_executions", "get_task_execution",
+                          "list_sender_rules", "search_sender_candidates", "save_sender_rule"}
     assert {"ConfigResponse", "EventResponse", "EventRevision", "EvidenceResponse", "RunResponse", "CycleResponse"} <= set(schema["components"]["schemas"])
     assert "synthetic-secret-never-return" not in client.get("/api/v1/config").text
 
@@ -134,32 +138,23 @@ def test_openapi_response_defaults_are_required_but_request_defaults_remain_opti
             "classification_evidence_status", "extensions", "updated_by", "review_flag", "closed_at"} <= set(models["EventResponse"]["required"])
     assert {"created", "updated", "review", "events", "processed", "ingested", "recovered_from_history", "counts_complete"} <= set(models["CycleResponse"]["required"])
     assert "cycles" in models["RunResponse"]["required"]
-    request_schema = schema["paths"]["/api/v1/runs"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    request_schema = schema["paths"]["/api/v1/tasks"]["post"]["requestBody"]["content"]["application/json"]["schema"]
     request_model = models[request_schema["$ref"].rsplit("/", 1)[-1]]
     assert not ({"mode", "uid", "start", "end", "interval", "offline"} & set(request_model.get("required", [])))
-    assert client.post("/api/v1/runs", json={}).status_code == 202
+    assert client.post("/api/v1/runs", json={}).status_code == 405
 
 
-def test_submit_official_defaults_to_offline_and_freezes_rules(api):
+def test_old_submission_is_removed(api):
     client, repository, worker, _ = api
-    response = client.post("/api/v1/runs", json={"mode": "official", "interval": "1d"})
-    assert response.status_code == 202
-    run = response.json()
-    RunResponse.model_validate(run)
-    assert run["status"] == "queued" and run["total_windows"] == 5
-    assert run["request"]["offline"] is True
-    assert run["request"]["end"] == "2026-11-13T00:00:00+08:00"
-    assert run["request"]["match_window"] == "7d"
-    assert worker.notifications == 1
-    assert client.get(f"/api/v1/runs/{run['run_id']}").json() == run
-    assert client.get("/api/v1/runs", params={"uid": run["uid"], "mode": "official"}).json()["total"] == 1
-    assert client.post("/api/v1/runs", json={"mode": "official"}).status_code == 409
+    assert client.post("/api/v1/runs", json={}).status_code == 405
+    assert not repository.items and worker.notifications == 0
 
 
 def test_progress_reads_are_scoped_and_never_submit_or_wake_processing(api):
     """虚构跨天进度保留失败及已完成计数，错客户或范围不能读取正文。"""
     client, repository, worker, _ = api
-    run = client.post("/api/v1/runs", json={"interval": "1d"}).json()
+    from dake.jobs.runner import prepare_request
+    run = repository.create(*prepare_request(api[3].state.services.settings, {"interval": "1d"}))
     item = repository.items[run["run_id"]]
     item.update(status="failed", completed_windows=1,
                 error="虚构校验失败：字段变化缺少依据",
@@ -187,7 +182,8 @@ def test_progress_reads_are_scoped_and_never_submit_or_wake_processing(api):
 
 def test_progress_legacy_cycles_do_not_return_foreign_scope_content(api):
     client, repository, _, _ = api
-    run = client.post("/api/v1/runs", json={"interval": "1d"}).json()
+    from dake.jobs.runner import prepare_request
+    run = repository.create(*prepare_request(api[3].state.services.settings, {"interval": "1d"}))
     item = repository.items[run["run_id"]]
     item["request"]["analysis_stream"] = None
     cycle = dict(uid=item["uid"], stream="synthetic-scope-a",
@@ -242,7 +238,7 @@ def test_progress_repository_filters_before_list_limit_without_database():
 ])
 def test_invalid_or_unbounded_runs_are_rejected(api, body):
     client, repository, _, _ = api
-    assert client.post("/api/v1/runs", json=body).status_code == 400
+    assert client.post("/api/v1/runs", json=body).status_code == 405
     assert not repository.items
 
 
@@ -254,7 +250,7 @@ def test_event_queries_stay_scoped_and_removed_demo_routes_are_unavailable(api):
     assert client.get("/api/v1/events/synthetic-event", params={"uid": "another-customer", "stream": TEST_STREAM}).status_code == 404
     assert client.get("/api/v1/demo/history").status_code == 404
     assert client.post("/api/v1/demo/sessions", json={}).status_code == 404
-    assert client.post("/api/v1/runs", json={"mode": "demo"}).status_code == 422
+    assert client.post("/api/v1/runs", json={"mode": "demo"}).status_code == 405
     assert not repository.items and worker.notifications == 0
 
 
@@ -263,7 +259,7 @@ def test_json_and_same_origin_write_boundary_and_private_data(api):
     assert client.post("/api/v1/runs", content='{}', headers={"content-type": "text/plain"}).status_code == 415
     assert client.post("/api/v1/runs", json={}, headers={"origin": "https://outside.invalid"}).status_code == 403
     assert not repository.items
-    assert client.post("/api/v1/runs", json={}, headers={"origin": "http://testserver"}).status_code == 202
+    assert client.post("/api/v1/runs", json={}, headers={"origin": "http://testserver"}).status_code == 405
     assert client.get("/api/v1/config").headers["cache-control"] == "no-store"
     assert client.get("/data/raw/any.json").status_code == 404
     assert client.get("/health", headers={"host": "outside.invalid"}).status_code == 400
@@ -271,7 +267,7 @@ def test_json_and_same_origin_write_boundary_and_private_data(api):
 
 def test_validation_and_unexpected_errors_do_not_echo_request_or_exception(api):
     client, _, _, application = api
-    response = client.post("/api/v1/runs", json={"mode": "official", "api_key": "fake-secret-value"})
+    response = client.post("/api/v1/tasks", json={"name": "合成任务", "api_key": "fake-secret-value"})
     assert response.status_code == 422 and "fake-secret-value" not in response.text
     application.state.services.queries.config = lambda: (_ for _ in ()).throw(RuntimeError("fake SQL and secret"))
     response = client.get("/api/v1/config")
@@ -291,4 +287,4 @@ def test_configured_lan_host_keeps_same_origin_boundary(tmp_path):
                            headers={"origin": "http://outside.invalid"}).status_code == 403
         assert not repository.items
         assert client.post("/api/v1/runs", json={},
-                           headers={"origin": "http://192.0.2.10:8000"}).status_code == 202
+                           headers={"origin": "http://192.0.2.10:8000"}).status_code == 405

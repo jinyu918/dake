@@ -196,9 +196,10 @@ test('默认选择进行中任务，自动显示停止原因并保留真实窗�
       filter_audit: [],
       recovered_from_history: false,
       counts_complete: true,
+      skipped_empty: false,
     },
   ];
-  await page.goto('/runs');
+  await page.goto('/tasks/run-detail');
   const detail = page.getByTestId('run-detail');
   await expect(detail.getByText('正在处理', { exact: true })).toBeVisible();
   await expect(detail.getByRole('progressbar')).toHaveAttribute('value', '12');
@@ -239,7 +240,7 @@ test('默认选择进行中任务，自动显示停止原因并保留真实窗�
 
 test('历史失败与当前任务分别查看，任务结束后自动显示完成', async ({ page }) => {
   const state = await mockProgress(page);
-  await page.goto('/runs?run=synthetic-old');
+  await page.goto('/tasks/run-detail?run=synthetic-old');
   const detail = page.getByTestId('run-detail');
   await expect(detail.getByText('任务已停止', { exact: true })).toBeVisible();
   await detail.getByRole('button', { name: '查看最新进度' }).click();
@@ -258,7 +259,7 @@ test('历史失败与当前任务分别查看，任务结束后自动显示完�
 
 test('读取失败不能继续声称正在处理，也不伪造成任务失败', async ({ page }) => {
   const state = await mockProgress(page);
-  await page.goto('/runs');
+  await page.goto('/tasks/run-detail');
   const detail = page.getByTestId('run-detail');
   await expect(detail.getByText('正在处理', { exact: true })).toBeVisible();
   state.failReads = true;
@@ -276,13 +277,13 @@ test('读取失败不能继续声称正在处理，也不伪造成任务失败',
   expect(state.writes).toEqual([]);
 });
 
-test('事件页常驻状态入口、自动更新事件数，并保留当前选择和三栏布局', async ({
+test('事件页统一任务入口、自动更新事件数，并保留当前选择和三栏布局', async ({
   page,
 }) => {
   const state = await mockProgress(page);
   await page.goto('/events');
-  const link = page.getByRole('link', { name: '查看运行进度' });
-  await expect(link).toContainText('正在处理');
+  const link = page.locator('.inbox-toolbar-actions a[href="/tasks"]');
+  await expect(link).toContainText('任务中心');
   await expect(page.locator('.heading-count')).toHaveText('1');
   const selected = page.locator('.event-rows [aria-current=true]');
   await expect(selected).toContainText('synthetic-first');
@@ -298,14 +299,8 @@ test('事件页常驻状态入口、自动更新事件数，并保留当前选�
       nodes.map((node) => node.getBoundingClientRect().top),
     );
   expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(2);
-  state.failReads = true;
-  await expect(link).toContainText('进度读取失败');
-  state.failReads = false;
   await link.click();
-  await expect(
-    page.getByRole('heading', { name: '运行进度', exact: true }),
-  ).toBeVisible();
-  expect(new URL(page.url()).searchParams.get('stream')).toBe(stream);
+  await expect(page).toHaveURL(/\/tasks$/);
   expect(state.writes).toEqual([]);
 });
 
@@ -318,13 +313,13 @@ test('切换客户和范围后取消旧详情，晚返回的结果不串入新�
   other.request.analysis_stream = 'synthetic-progress-b';
   state.tasks.push(other);
   state.delayId = 'synthetic-active';
-  await page.goto('/runs');
+  await page.goto('/tasks/run-detail');
   await expect.poll(() => Boolean(state.release)).toBeTruthy();
   await page.evaluate(() => {
     window.history.pushState(
       null,
       '',
-      '/runs?uid=555002&stream=synthetic-progress-b',
+      '/tasks/run-detail?uid=555002&stream=synthetic-progress-b',
     );
     window.dispatchEvent(new PopStateEvent('popstate'));
   });
@@ -340,7 +335,7 @@ test('切换客户和范围后取消旧详情，晚返回的结果不串入新�
 test('没有任务与失败原因缺失均如实提示', async ({ page }) => {
   const state = await mockProgress(page);
   state.tasks = [];
-  await page.goto('/runs');
+  await page.goto('/tasks/run-detail');
   await expect(page.getByText('还没有处理记录', { exact: true })).toBeVisible();
   state.tasks = [task('synthetic-missing-reason', 'failed')];
   state.tasks[0].error = null;

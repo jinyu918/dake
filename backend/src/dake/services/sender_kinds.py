@@ -17,17 +17,24 @@ bot 消息只能作为辅助证据，纯告警或恢复通知不能独立创建�
 """
 
 
-def load_sender_kinds(data_dir: Path) -> SenderKinds:
-    """只接受明确账号及确认依据；格式错误时停止处理，不能悄悄丢弃规则。"""
+def read_sender_kind_document(data_dir: Path) -> dict:
+    """读取私有配置原文，供执行器和管理页面共用校验。"""
     try:
         value = json.loads((data_dir / "config" / "sender_kinds.json").read_text(encoding="utf-8"))
     except FileNotFoundError:
-        return {}
+        return {"accounts": []}
     except (OSError, ValueError):
         raise ValueError("本地人工／机器人配置无法读取") from None
+    parse_sender_kinds(value)
+    return value
+
+
+def parse_sender_kinds(value: dict) -> SenderKinds:
+    """只接受明确账号及确认依据；停用规则仍校验，但不参与身份判定。"""
     if not isinstance(value, dict) or not isinstance(value.get("accounts"), list):
         raise ValueError("本地人工／机器人配置格式无效")
     result: SenderKinds = {}
+    seen = set()
     for account in value["accounts"]:
         if not isinstance(account, dict):
             raise ValueError("本地人工／机器人配置格式无效")
@@ -42,10 +49,19 @@ def load_sender_kinds(data_dir: Path) -> SenderKinds:
         if not isinstance(group, str) or ("conversation_id" in account and not group.strip()):
             raise ValueError("机器人配置中的群标识无效")
         key = (*key, group)
-        if key in result:
+        if key in seen:
             raise ValueError("人工／机器人配置包含重复账号")
-        result[key] = kind
+        seen.add(key)
+        if type(account.get("enabled", True)) is not bool:
+            raise ValueError("机器人配置启用状态无效")
+        if account.get("enabled", True):
+            result[key] = kind
     return result
+
+
+def load_sender_kinds(data_dir: Path) -> SenderKinds:
+    """每个处理窗口读取一次配置，已开始的窗口继续使用同一份规则。"""
+    return parse_sender_kinds(read_sender_kind_document(data_dir))
 
 
 def sender_kind(payload: dict, kinds: SenderKinds | None = None) -> SenderKind:

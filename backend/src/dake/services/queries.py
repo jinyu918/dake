@@ -7,8 +7,10 @@ from ..analysis.providers.xhub import configured_stream
 from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE
 from ..domain.models import TYPE_ATTRIBUTE_NAMES
 from ..domain.event_identity import followup_events
+from ..domain.customer_policy import customer_segment, is_super_large
+from ..domain.models import EVENT_TYPES, parse_time
 from ..ingestion.client import validate_uid
-from ..repositories.mysql import MySQLStore
+from ..repositories.mysql import MySQLStore, StorageError
 from ..repositories.attempts import AttemptRepository
 from .enrich import enrich_events
 from .event_changes import event_changes
@@ -54,17 +56,87 @@ class QueryService:
     def config(self):
         """返回公开缺省及真实计数，不泄露数据库或网络凭据。"""
         customers = []
+        stream = configured_stream(self.settings)
         with self.connection() as store:
             rows, _ = store._execute("SELECT DISTINCT uid FROM messages WHERE source='official_chat' ORDER BY uid")
-            official_uids = [self.settings.uid] + [row["uid"] for row in rows
-                                                  if row["uid"] != self.settings.uid]
-            scopes = [(uid, "官方样例客户" if uid == self.settings.uid else f"客户 {uid}",
-                       "official_chat", configured_stream(self.settings)) for uid in official_uids]
-            for uid, label, source, stream in scopes:
-                rows, _ = store._execute("SELECT COUNT(*) AS total FROM messages WHERE uid=%s AND source=%s", (uid, source))
-                count = len(followup_events(store.list_events(uid, stream)))
-                customers.append(dict(uid=uid, label=label, stream=stream,
-                                      message_count=rows[0]["total"], event_count=count))
+            profiles_by_uid = {}
+            groups_by_uid = {}
+            try:
+                profile_rows, _ = store._execute(
+                    "SELECT uid, level, level_state, tam, tam_b FROM customer_profiles ORDER BY uid"
+                )
+                for row in profile_rows:
+                    profiles_by_uid[row["uid"]] = row
+                group_rows, _ = store._execute(
+                    "SELECT uid, group_name FROM customer_groups WHERE uid IS NOT NULL AND status='confirmed' "
+                    "ORDER BY synced_at DESC, group_id"
+                )
+                for row in group_rows:
+                    name = (row.get("group_name") or "").strip()
+                    if name:
+                        groups_by_uid.setdefault(row["uid"], [])
+                        if name not in groups_by_uid[row["uid"]]:
+                            groups_by_uid[row["uid"]].append(name)
+            except StorageError:
+                profiles_by_uid = {}
+                groups_by_uid = {}
+            official_uids = []
+            for row in rows:
+                if row["uid"] not in official_uids:
+                    official_uids.append(row["uid"])
+            for uid, profile in profiles_by_uid.items():
+                if uid not in official_uids and customer_segment(profile.get("level"), profile.get("level_state")) == "large":
+                    official_uids.append(uid)
+            for uid in official_uids:
+                label = f"客户 {uid}"
+                msg_rows, _ = store._execute(
+                    "SELECT COUNT(*) AS total FROM messages WHERE uid=%s AND source=%s",
+                    (uid, "official_chat"),
+                )
+                evt_rows, _ = store._execute(
+                    "SELECT COUNT(*) AS total, MAX(end_time) AS latest_end FROM events WHERE uid=%s AND stream=%s",
+                    (uid, stream),
+                )
+                profile = profiles_by_uid.get(uid, {})
+                level = profile.get("level")
+                level_state = profile.get("level_state") or "unknown"
+                group_names = list(groups_by_uid.get(uid, []))
+                if not group_names and msg_rows[0]["total"] > 0:
+                    try:
+                        conv_rows, _ = store._execute(
+                            "SELECT DISTINCT JSON_UNQUOTE(JSON_EXTRACT(payload,'$.conversation_name')) AS name "
+                            "FROM messages WHERE uid=%s AND source=%s LIMIT 10",
+                            (uid, "official_chat"),
+                        )
+                        group_names = [
+                            r["name"].strip()
+                            for r in conv_rows
+                            if r.get("name") and r["name"].strip()
+                        ]
+                    except StorageError:
+                        group_names = []
+                latest_end = evt_rows[0].get("latest_end") if evt_rows else None
+                latest_event_time = (
+                    parse_time(latest_end).isoformat() if latest_end is not None else None
+                )
+                customers.append(
+                    dict(
+                        uid=uid,
+                        label=label,
+                        stream=stream,
+                        message_count=msg_rows[0]["total"],
+                        event_count=evt_rows[0]["total"],
+                        level=level,
+                        level_state=level_state,
+                        segment=customer_segment(level, level_state),
+                        is_super_large=is_super_large(level, level_state),
+                        tam=profile.get("tam"),
+                        tam_b=profile.get("tam_b"),
+                        group_count=len(group_names),
+                        group_names=group_names[:8],
+                        latest_event_time=latest_event_time,
+                    )
+                )
         end = self.settings.end
         end_text = (end - timedelta(days=1)).date().isoformat() if end.time().isoformat() == "00:00:00" else end.isoformat()
         return dict(uid=self.settings.uid, start=self.settings.start.isoformat(), end=end_text,

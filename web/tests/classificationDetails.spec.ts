@@ -3,7 +3,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ClassificationDetails } from '../src/components/ClassificationDetails';
 import { EventPane } from '../src/pages/events/EventPane';
-import { CyclePanel } from '../src/pages/runs/CyclePanel';
+import { CyclePanel } from '../src/pages/tasks/run-detail/CyclePanel';
 import { fieldDefaults } from './fieldDefaults';
 
 function event(overrides: Partial<API.EventResponse> = {}): API.EventResponse {
@@ -262,6 +262,7 @@ test('周期变化条目显示快照的完整标签集合', () => {
           filter_audit: [],
           recovered_from_history: false,
           counts_complete: true,
+          skipped_empty: false,
         },
       ],
     }),
