@@ -9,6 +9,7 @@ from uuid import UUID
 
 import pytest
 
+from dake.analysis.attribution import AttributionOutput
 from dake.analysis.contract import ContractError, parse_output
 from dake.analysis.providers.xhub import XHubError, XHubProvider
 from dake.config import HistoryRetrievalSettings, Settings
@@ -359,6 +360,7 @@ def pure_xhub(settings):
     """仅复用输入构造函数，不执行构造器、不创建 HTTP 客户端、不配置凭据。"""
     provider = object.__new__(XHubProvider)
     provider.settings = replace(settings, provider="xhub")
+    provider.attribution_model = AttributionOutput
     provider.name, provider.sender_kinds, provider.history_retrieval = STREAM, {}, None
     return provider
 
