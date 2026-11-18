@@ -36,7 +36,9 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--start", help="上海时间，日期或 ISO 时间戳")
         command.add_argument("--end", help="日期含当天；ISO 时间戳不含端点")
         command.add_argument("--interval", type=duration, help="处理周期，例如 15m、1h、1d")
-        command.add_argument("--offline", action="store_true", help="仅使用已保存的官方原始响应")
+        offline_help = ("预览默认启用，仅使用已入库且已授权的聊天" if name == "preview-priority"
+                        else "仅使用已保存的官方原始响应")
+        command.add_argument("--offline", action="store_true", help=offline_help)
         if name == "preview-priority":
             command.set_defaults(offline=True)
             command.add_argument("--calendar", help="指定本地服务日历并启用事项计时")

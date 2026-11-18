@@ -505,7 +505,7 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
     store.profiles.update({UID: dict(level="L6", level_state="fresh"),
                            "affected-uid": dict(level="L9", level_state="fresh"),
                            "pending-uid": dict(level="L10", level_state="fresh")})
-    baseline = Settings(uid=UID, data_dir=tmp_path, start=window(1).start, end=window(3).end, provider="xhub")
+    baseline = Settings(uid=UID, data_dir=tmp_path / "data", start=window(1).start, end=window(3).end, provider="xhub")
     settings = replace(baseline, priority_preview=True)
     proposal = dict(impact="medium", urgency="unknown", reason="局部降级", **_priority_quote(msg),
                     impact_evidence=_priority_quote(msg), affected_customers=[
@@ -526,8 +526,21 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
                             settings, transport=httpx.MockTransport(respond))
     try:
         assert provider.name == configured_stream(settings) != configured_stream(baseline)
-        service = IncrementalService(store, None, provider, settings)
-        event_id, = service.run_window(UID, window(1)).created
+        from contextlib import contextmanager
+        from dake.cli import main
+
+        @contextmanager
+        def build_preview(configuration, *, offline):
+            assert offline and configuration.priority_preview
+            assert configured_stream(configuration) == provider.name
+            yield IncrementalService(store, None, provider, configuration)
+
+        monkeypatch.setattr("dake.config.PROJECT_ROOT", tmp_path)
+        monkeypatch.setattr("dake.cli.Settings.load", lambda _: baseline)
+        monkeypatch.setattr("dake.cli.build_service", build_preview)
+        assert main(["preview-priority", "--uid", UID, "--start", window(1).start.isoformat(),
+                     "--end", window(1).end.isoformat(), "--interval", "1d"]) == 0
+        event_id, = store.events
         event = store.events[event_id]
         assert (event.uid, event.base_priority, event.priority) == (UID, "P2", "P1")
         detail = event.priority_detail
@@ -554,7 +567,10 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
                        decided_at=window(2).end.isoformat())
         assert refresh_item_priority(updated, store.customer_profile)
         assert updated.priority == "P2"
-        assert not service.run_window(UID, window(3)).updated
+        version = updated.version
+        assert main(["preview-priority", "--uid", UID, "--start", window(3).start.isoformat(),
+                     "--end", window(3).end.isoformat(), "--interval", "1d"]) == 0
+        assert store.events[event_id].version == version
         assert len(calls) == 1
     finally:
         provider.close()
