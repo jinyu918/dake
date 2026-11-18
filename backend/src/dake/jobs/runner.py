@@ -60,7 +60,7 @@ def prepare_request(settings, values: dict) -> tuple[dict, int]:
                 ingest_lookback=duration_label(settings.ingest_lookback),
                 history_retrieval=asdict(settings.history_retrieval),
                 history_context=asdict(settings.history_context),
-                attribution_version=attribution_version() if settings.provider == "xhub" else None,
+                attribution_version=attribution_version(priority_preview=settings.priority_preview) if settings.provider == "xhub" else None,
                 default_status=settings.default_status, default_severity=settings.default_severity,
                 closed_statuses=list(settings.closed_statuses),
                 provider=settings.provider,
@@ -298,7 +298,7 @@ class RunRunner:
             if request["mode"] != "official":
                 raise ValueError("该运行模式已移除")
             if (request["mode"] == "official" and settings.provider == "xhub"
-                    and request.get("attribution_version") != attribution_version()):
+                    and request.get("attribution_version") != attribution_version(priority_preview=settings.priority_preview)):
                 raise XHubError("增量归属策略已变化，请重新提交任务；原分析范围及已处理消息保持不变")
             if request.get("analysis_stream") and request["analysis_stream"] != configured_stream(settings):
                 raise XHubError("提示词或输出合约已变化，请重新提交任务")

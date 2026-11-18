@@ -269,8 +269,7 @@ def test_wrong_old_basis_quote_uses_existing_bounded_repair_before_commit(tmp_pa
         if len(calls) == 1:
             content = model_output(first)
         else:
-            # 文字确实存在，但故意把本轮正文配到旧消息编号；不能据此绕过旧证据检查。
-            quote = first.content if corrected and len(calls) == 3 else follow.content
+            quote = first.content if corrected and len(calls) == 3 else "虚构且无法对齐的旧引文"
             content = model_output(follow, decision="update", referenced_event_id=target,
                 basis=[dict(message_id=follow.key, quote=follow.content),
                        dict(message_id=first.key, quote=quote)])
@@ -601,7 +600,7 @@ def test_field_coverage_uses_bounded_repair_and_preserves_old_fields(tmp_path, c
             if not (corrected and len(calls) == 3):
                 item["evidence_ids"].append(first.key)
                 item["attributes"] = [dict(name="synthetic-field", value=first.content,
-                    quote=first.content, evidence_ids=[first.key])]
+                    quote=first.content, evidence_ids=[first.key, follow.key])]
             content = json.dumps(payload)
 
         return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": content}}]})
@@ -621,12 +620,12 @@ def test_field_coverage_uses_bounded_repair_and_preserves_old_fields(tmp_path, c
             assert last(attempts)["outcome"] == "committed"
         else:
             from dake.analysis.providers.xhub import XHubContractError
-            with pytest.raises(XHubContractError, match="字段更新必须有本轮直接消息依据"):
+            with pytest.raises(XHubContractError, match="字段证据必须是候选证据的无重复子集"):
                 service.run_window(UID, window(2))
             assert store.events == before and (follow.key, service.stream) not in store.processed
             assert last(attempts)["outcome"] == "not_committed" and last(attempts)["receipt"] is None
         assert len(calls) == 3  # 初始新建一次；后续一批最多原请求加一次纠正。
-        assert "字段更新必须有本轮直接消息依据" in calls[-1]["messages"][-1]["content"]
+        assert "字段证据必须是候选证据的无重复子集" in calls[-1]["messages"][-1]["content"]
         assert "candidates[0]" in calls[-1]["messages"][-1]["content"]
         assert "attributes[0]" in calls[-1]["messages"][-1]["content"]
         assert first.content not in calls[-1]["messages"][-1]["content"]
@@ -640,7 +639,7 @@ def test_field_coverage_uses_bounded_repair_and_preserves_old_fields(tmp_path, c
 
 
 
-@pytest.mark.parametrize("fault", ["old_evidence", "replacement", "overlap", "missing_basis"])
+@pytest.mark.parametrize("fault", ["unknown_evidence", "replacement", "overlap", "missing_basis"])
 @pytest.mark.parametrize("corrected", [True, False])
 def test_late_validation_enters_single_repair_without_preflight_writes(tmp_path, fault, corrected):
     """完整业务预校验无副作用，旧证据、摘要冲突与缺失背景都只纠正一次。"""
@@ -662,8 +661,8 @@ def test_late_validation_enters_single_repair_without_preflight_writes(tmp_path,
                        dict(message_id=first.key, quote=first.content)]))
             item = payload["candidates"][0]
             if not (corrected and len(calls) == 3):
-                if fault == "old_evidence":
-                    item["evidence_ids"].append(first.key)
+                if fault == "unknown_evidence":
+                    item["evidence_ids"].append("official_chat:unavailable-evidence")
                 elif fault == "replacement":
                     item["changes"][0]["replaces"] = "不存在的合成摘要片段"
                 elif fault == "overlap":

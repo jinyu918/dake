@@ -254,6 +254,7 @@ def apply_attributions(
             stream=result.stream,
             before=result.window.end,
             closed_statuses=settings.closed_statuses,
+            priority_preview=settings.priority_preview,
         )
         record.update(
             kind="event_attribution",

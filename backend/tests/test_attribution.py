@@ -547,6 +547,10 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
         assert detail["effective_customer_uid"] == "affected-uid"
         assert detail["affected_customers_pending"]
         assert detail["affected_customers"][0]["evidence_refs"][0]["digest"] == msg.digest
+        from dake.analysis.attribution import attribution_version
+
+        assert event.updated_by[-1]["policy_version"] == attribution_version(priority_preview=True)
+        assert event.updated_by[-1]["policy_version"] != attribution_version()
         assert (msg.key, configured_stream(baseline)) not in store.processed
         from dake.domain.manual_controls import set_field_lock
         from dake.services.item_priority import refresh_directory_priorities, refresh_item_priority

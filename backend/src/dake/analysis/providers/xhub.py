@@ -1,16 +1,13 @@
 """获用户授权的 XHub 抽取实现；复用实验合约，真实输入仅来自官方消息。"""
 
-from ...services.sender_kinds import BOT_POLICY, FILTER_VERSION, kinds_fingerprint, load_sender_kinds, sender_kind
+from ...services.sender_kinds import FILTER_VERSION, kinds_fingerprint, load_sender_kinds, sender_kind
 from ...services.sender_identity import confirmed_sender_role
-from ...services.history_retrieval import HISTORY_POLICY
-from ...services.history_context import CONTEXT_POLICY
 
 from dataclasses import asdict, dataclass, field
 from copy import deepcopy
 import hashlib
 import json
 import os
-from pathlib import Path
 from time import monotonic
 from uuid import uuid4
 
@@ -20,10 +17,9 @@ import httpx
 from ...config import DEFAULT_ENV_FILE, Settings
 from ...domain.models import Event, Message, message_order, parse_time
 from ...repositories.local_state import private_json
+from ..attribution import AttributionOutput, EvidenceAttributionOutput, attribution_version, parse_attribution_output
 from ..contract import ContractError, EvidenceExtractionOutput, ExtractionOutput, parse_output, strict_schema
-from ..attribution import ATTRIBUTION_POLICY, AttributionOutput, EvidenceAttributionOutput, attribution_version, parse_attribution_output
-
-PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "event_extraction_v1.txt"
+from ..prompts import PRIORITY_PREVIEW_LINEAGE_V1, STREAM_LINEAGE_V1, compose_system_prompt, prompt_bundle_hash, render_repair_prompt
 
 
 class XHubError(RuntimeError):
@@ -56,23 +52,17 @@ class XHubConfig:
         return result
 
 
-def _priority_prompt(preview: bool) -> bytes:
-    content = PROMPT_PATH.read_bytes()
-    if not preview:
-        return content
-    start = content.index("六、业务优先级".encode())
-    end = content.index("七、输出自检".encode(), start)
-    return content[:start] + PROMPT_PATH.with_name("priority_evidence_preview.txt").read_bytes() + b"\n" + content[end:]
-
-
 def xhub_identity(model: str, response_format: str, max_tokens: int, *, preview: bool = False) -> dict:
-    """根据模型、提示词与严格合约生成稳定处理流，普通重跑不会重新消费旧消息。"""
-    prompt_hash = hashlib.sha256(_priority_prompt(preview)).hexdigest()
+    """按流血统锚点、模型与输出合约生成稳定处理流。"""
+    bundle_hash = prompt_bundle_hash(priority_preview=preview)
+    lineage = PRIORITY_PREVIEW_LINEAGE_V1 if preview else STREAM_LINEAGE_V1
     model_schema = EvidenceAttributionOutput if preview else ExtractionOutput
     schema = strict_schema(model_schema.model_json_schema())
     schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
-    signature = hashlib.sha256(f"{model}:{prompt_hash}:{schema_hash}:{response_format}:{max_tokens}".encode()).hexdigest()[:20]
-    return dict(stream=f"xhub-v1-{signature}", prompt_hash=prompt_hash, schema_hash=schema_hash)
+    signature = hashlib.sha256(
+        f"{model}:{lineage}:{schema_hash}:{response_format}:{max_tokens}".encode()
+    ).hexdigest()[:20]
+    return dict(stream=f"xhub-v1-{signature}", prompt_hash=bundle_hash, schema_hash=schema_hash)
 
 
 def configured_stream(settings: Settings) -> str:
@@ -99,12 +89,13 @@ class XHubProvider:
         if repair_attempts not in (0, 1):
             raise XHubError("结构纠正最多允许一次")
         self.repair_attempts = repair_attempts
-        self.prompt = _priority_prompt(True).decode() if settings.priority_preview else PROMPT_PATH.read_text(encoding="utf-8")
         self.extraction_model = EvidenceExtractionOutput if settings.priority_preview else ExtractionOutput
         self.attribution_model = EvidenceAttributionOutput if settings.priority_preview else AttributionOutput
+        base_prompt = compose_system_prompt(mode="extraction", priority_preview=settings.priority_preview)
+        self.prompt = base_prompt.content
         schema = strict_schema(self.extraction_model.model_json_schema())
         self.schema = schema
-        self.prompt_hash = hashlib.sha256(self.prompt.encode()).hexdigest()
+        self.prompt_hash = base_prompt.bundle_hash
         self.schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
         self.name = xhub_identity(config.model, config.response_format, config.max_tokens, preview=settings.priority_preview)["stream"]
         self.client = httpx.Client(timeout=config.timeout_seconds, follow_redirects=False, transport=transport)
@@ -201,7 +192,7 @@ class XHubProvider:
         )
         if history is not None:
             payload["history_retrieval"] = history.metadata()
-            payload["attribution_policy"] = dict(version=attribution_version())
+            payload["attribution_policy"] = dict(version=attribution_version(priority_preview=self.settings.priority_preview))
         background = getattr(self, "history_context", None)
         if background is not None:
             try:
@@ -247,12 +238,7 @@ class XHubProvider:
                     raise
                 repair = [
                     {"role": "assistant", "content": self.traces[-1]["output"]},
-                    {"role": "user", "content": (
-                        f"上一次 JSON 未通过程序校验：{error}。请仅修正格式、枚举约束、重复属性名或不合法证据；"
-                        "仍以最初提供的消息和事件为事实依据，保留有效事件，不新增猜测。"
-                        "typed_attributes 的 value 必须逐字来自连续 quote；status_proposal 和 priority_proposal 的 quote 必须是对应消息的连续子串。"
-                        "逐一处理反馈中列出的所有字段位置，返回完整的修正后 JSON。"
-                    )},
+                    {"role": "user", "content": render_repair_prompt(str(error), priority_preview=self.settings.priority_preview)},
                 ]
 
     def _extract_once(self, new_messages, context, existing_events, repair):
@@ -269,21 +255,38 @@ class XHubProvider:
             response_format["json_schema"] = dict(
                 name="aftersales_attribution_v1" if self.history_retrieval is not None else "aftersales_extraction_v1",
                 strict=True, schema=self.schema)
-        request = dict(model=self.config.model,
-                       messages=[{"role": "system", "content": self.prompt + BOT_POLICY +
-                                  (HISTORY_POLICY if self.history_retrieval is not None else "") +
-                                  (CONTEXT_POLICY if getattr(self, "history_context", None) is not None else "") +
-                                  (ATTRIBUTION_POLICY if self.history_retrieval is not None else "") + "\n输出 JSON Schema：\n" +
-                                  json.dumps(self.schema, ensure_ascii=False)},
-                                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}, *repair],
-                       response_format=response_format, max_tokens=self.config.max_tokens, stream=False)
+        assembled = compose_system_prompt(
+            mode="attribution" if self.history_retrieval is not None else "extraction",
+            include_history_context=getattr(self, "history_context", None) is not None,
+            schema=self.schema,
+            priority_preview=self.settings.priority_preview,
+        )
+        request = dict(
+            model=self.config.model,
+            messages=[
+                {"role": "system", "content": assembled.content},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                *repair,
+            ],
+            response_format=response_format,
+            max_tokens=self.config.max_tokens,
+            stream=False,
+        )
         context = self._fit_context(request, payload, context)
         base = self.config.base_url.rstrip("/")
         endpoint = (base if base.endswith("/v1") else base + "/v1") + "/chat/completions"
-        trace = dict(model=self.config.model, input=payload, response_format=self.config.response_format,
-                     prompt_hash=self.prompt_hash, schema_hash=self.schema_hash, max_tokens=self.config.max_tokens,
-                     repair_attempt=bool(repair))
-        trace["effective_prompt_hash"] = hashlib.sha256(request["messages"][0]["content"].encode()).hexdigest()
+        trace = dict(
+            model=self.config.model,
+            input=payload,
+            response_format=self.config.response_format,
+            prompt_bundle_version=assembled.bundle_version,
+            prompt_sections=list(assembled.section_ids),
+            prompt_hash=assembled.bundle_hash,
+            schema_hash=self.schema_hash,
+            max_tokens=self.config.max_tokens,
+            repair_attempt=bool(repair),
+        )
+        trace["effective_prompt_hash"] = assembled.content_hash
         trace["notification_policy"] = payload["notification_policy"]
         trace["attribution_policy"] = payload.get("attribution_policy")
         started = monotonic()
@@ -291,6 +294,8 @@ class XHubProvider:
         if observe is not None:
             observe("model_started", input=payload, model=self.config.model,
                     prompt_hash=trace["effective_prompt_hash"], schema_hash=self.schema_hash,
+                    prompt_bundle_version=assembled.bundle_version, prompt_bundle_hash=assembled.bundle_hash,
+                    prompt_sections=list(assembled.section_ids),
                     request_digest=hashlib.sha256(json.dumps(request, ensure_ascii=False, sort_keys=True).encode()).hexdigest(),
                     repair_attempt=bool(repair),
                     message_versions=[dict(key=m.key, source=m.source, message_id=m.message_id, digest=m.digest,

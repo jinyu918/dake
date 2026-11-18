@@ -10,27 +10,6 @@ from ..domain.models import parse_time
 from .contract import ContractError, StrictObject
 
 
-SUMMARY_POLICY = """
-七、摘要与变化历史（替代前述输出版本和摘要整段覆盖约定）
-schema_version 固定为 "4.0"。每个候选增加 changes，说明本轮新增事实及其直接证据。
-changes 每项为 {kind,text,evidence:[{message_id,quote}],replaces}。
-kind=progress：新的排查结果、动作及效果、影响、负责人、状态流转或承诺变化；
-kind=confirmation：新的测试或反馈再次确认现状，例如今天再试仍失败；记录进展但摘要可以不变；
-kind=correction：有明确本轮依据纠正旧结论，保留历史，不把猜测当成确认。
-text 是一条简短事实，保留未确认、怀疑、请求等限定词；evidence 引用本批直接证据的连续原文，
-至少有本轮可分析的新讨论支持，不可把历史背景引文写作新增事实依据。
-new 必须有初始事实，summary 概括初始问题。duplicate/review 的 changes=[]。
-update 的 summary 不能用于整体覆盖旧摘要；程序只采用有依据的 changes 局部更新。
-新增事实通常 replaces=null，程序追加简短事实，保留原问题、重要进展和未解决事项。
-确有依据更新摘要中已经过时或错误的片段时，replaces 必须逐字复制那个旧片段，
-由 text 替换它；不得为润色删除未解决事项或把局部新反馈替换成整段摘要。
-confirmation 的 replaces=null，不仅因为新消息时间较晚就重写摘要。
-没有新增事实、仅重述或换措辞时 changes=[]，不能编造 progress。已有原归属时应选 duplicate。
-同一事件同批的全部有效进展都列入 changes，不能只留下最后一条。字段变化也必须由本轮依据支持。
-迟到旧陈述只补证据，不能覆盖较新结论；有明确新纠正时引用本轮纠正原文，保存被纠正的片段。
-"""
-
-
 class ChangeReference(StrictObject):
     """变化所依据的本批原文，定位信息和版本由程序填写。"""
 

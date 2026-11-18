@@ -28,7 +28,7 @@ dake = "dake.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-dake = ["analysis/prompts/*.txt"]
+"dake.analysis.prompts" = ["README.md", "sections/*.md", "templates/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

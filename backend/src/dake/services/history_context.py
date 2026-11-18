@@ -10,14 +10,6 @@ from ..domain.models import Event, parse_time
 from .sender_kinds import sender_kind
 
 
-CONTEXT_POLICY = """
-history_context 是只读背景，items 中的消息不能因为被补取就成为本轮新增或新事件证据。
-links 的 event_evidence 表示原事件已有引用；neighbor 仅表示附近聊天，不证明事件归属。
-availability、fragments、reasons 明示缺失和截断，不得补造未提供的正文或结论。
-本轮输出 evidence_ids 仍仅允许引用 new_messages 和 context_messages，不得引用仅在 history_context 中的消息。
-没有候选、正文缺失或预算不足不证明应该 new；关键词相似也不证明应该 merge。
-背景只按已记录的窗口和证据版本核验，arrival_history_available=false 不代表完整还原当时已知信息。
-"""
 _REFERENCE = re.compile(r"上次|之前|那个|这个|上述|如下|message_id\s*[:=]")
 
 

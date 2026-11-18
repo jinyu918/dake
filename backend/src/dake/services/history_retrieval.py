@@ -12,12 +12,6 @@ from ..analysis.continuity import recovery_is_safe
 
 
 RETRIEVAL_VERSION = "bounded-keywords-v1"
-HISTORY_POLICY = """
-历史候选是只读背景，不是新增消息或归属决定。零命中不证明应该 new，多命中不代表应该 merge。
-hit_reasons 是检索线索，不是已确认事实；evidence_ids 只是历史引用，未提供原文的 ID 不得用作本轮证据。
-history_retrieval.incomplete 为 true 表示预算、版本或快照限制导致候选可能不完整。
-较早或已关闭事件也可作为背景；是否允许更新仍遵守现有输出合约及匹配规则。
-"""
 
 _UUID = r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"
 _EVENT_REF = re.compile(r"\bevent_id\s*[:=]\s*(" + _UUID + r")(?![\w-])")

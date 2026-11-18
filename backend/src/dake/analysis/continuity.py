@@ -10,31 +10,6 @@ from .contract import ContractError, StrictObject
 from .summary_changes import ChangeReference
 
 
-CONTINUITY_POLICY = """
-八、客户确认恢复与再次发生
-仍只用 new/update/duplicate/review。每个候选增加 continuity，无恢复边界相关事实时为 null。
-非空结构为 {kind,previous_event_id,evidence:[{message_id,quote}]}；这些是归属依据，不是事件状态。
-confirm_recovery：update 原事件。只有 confirmed_sender_role=customer 且 sender_kind 不是 bot 的
-本轮消息中，客户本人明确确认这个问题已经恢复才有效。内部修复、内部复测、转述客户已恢复、
-自动通知、收到、谢谢、预计恢复都不算。身份未确认时保留事实并 review，不能猜客户身份。
-恢复证据放入本候选 changes，时间保存确认消息的 send_time，不猜实际恢复时刻，也不自动关闭工单。
-recurrence：new，previous_event_id 指向本次已有候选中的前次事件；referenced_event_id=null。
-必须有可信的客户恢复确认，以及本轮明确说明同一对象或问题在恢复后新一次发生的原文。
-只有关键词相同、隔了几天、又、还是不够；没有恢复记录也不能默认一直未解决或直接合并。
-若新消息明确回顾“之前确已恢复，现在再次发生”，可分别输出 confirm_recovery 的 update 和
-recurrence 的 new，两者引用同一消息中各自的原文，更新原事件仍须旧事件依据。
-同批恢复与再次发生必须拆成候选，不得把两次发生的证据合成一个 update。
-historical：update，本轮明确回顾恢复前的情况，只给原事件补证据，不修改其当前结论。
-retract_recovery：update，客户明确纠正先前恢复结论，实际一直没好；保留旧版本，撤销恢复记录。
-更正摘要中已有恢复片段时使用 correction；摘要未包含该结论时追加有依据的更正事实。
-uncertain：review，恢复、指代或发生先后无法核对时使用；changes=[]，possible_event_ids 保存备选。
-除 recurrence 外 previous_event_id=null。所有 continuity.evidence 只能引用本轮直接证据；
-明确动作还须在 changes 的引文中体现。retract_recovery 同样必须由已确认身份的客户明确说明。
-已恢复事件的新进展必须说明上述边界；纯复述仍可 duplicate。不同故障可独立 new，不能只因同产品
-就标成复发。所有归属仍需新旧证据支持，不使用未来结论；历史证据不足时 review。
-"""
-
-
 class ContinuityFact(StrictObject):
     """一次边界判断，父事件仅用于复发的新建决定。"""
 

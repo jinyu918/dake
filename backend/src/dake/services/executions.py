@@ -25,7 +25,7 @@ def message_ref(message):
 def execution_policy(service):
     """只冻结已有处理参数，不改变策略、分析范围或既有规则。"""
     settings = service.settings
-    return dict(provider=service.stream, attribution=attribution_version(),
+    return dict(provider=service.stream, attribution=attribution_version(priority_preview=settings.priority_preview),
         start=settings.start.isoformat(), history_retrieval=asdict(settings.history_retrieval),
         history_context=asdict(settings.history_context), context_lookback=str(settings.context_lookback),
         ingest_lookback=str(settings.ingest_lookback), match_window=str(settings.match_window),

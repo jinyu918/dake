@@ -1,0 +1,1 @@
+事项定级预览补充核对：单独校验 `impact_evidence`、`urgency_evidence`、客户响应、`affected_customers` 与 `clock_evidence` 的证据。引用多条消息时，同一个 `quote` 须在每条引用消息中连续出现。缺少直接证据的客观维度改填 `unknown`，相应证据填 `null`。客户身份或已发生影响无法核实则标记 `pending`。保留原消息边界，勿使用其他客户聊天或只读历史作为定级证据。

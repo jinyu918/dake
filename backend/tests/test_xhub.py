@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import json
+import os
 import stat
 
 import httpx
@@ -26,10 +27,11 @@ def test_official_provider_uses_same_contract_and_private_trace(tmp_path):
         assert client.name == configured_stream(settings)
         assert len(client.extract([msg], [], [])) == 1
         path = next((tmp_path / "raw" / "xhub" / client.name).glob("*.json"))
-        assert stat.S_IMODE(path.stat().st_mode) == 0o600
-        saved = json.loads(path.read_text())
+        if os.name == "posix":
+            assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        saved = json.loads(path.read_text(encoding="utf-8"))
         assert saved["ok"] is True
-        assert "synthetic-key" not in path.read_text()
+        assert "synthetic-key" not in path.read_text(encoding="utf-8")
     finally:
         client.close()
 

@@ -7,14 +7,6 @@ from ..domain.models import SenderKind
 
 SenderKinds = dict[tuple[str, str, str, str], SenderKind]
 FILTER_VERSION = "confirmed-senders-v1"
-BOT_POLICY = """
-机器人通知规则：sender_kind 来自本地已确认账号配置，与内部／外部身份无关。
-bot 消息只能作为辅助证据，纯告警或恢复通知不能独立创建或更新客户事件。
-候选必须由本轮非机器人消息中的明确问题、诉求、影响讨论、排查或处理事实支持。
-不能因为同一窗口有人说话、问候或回复收到，就将无关告警转成客户事件。
-客户单方明确反馈即可产生事件，不要求内部回复。unknown 不等于机器人，不得直接过滤。
-人工讨论确实引用或涉及告警时可以附上相关机器人证据，不能把自动恢复通知当成人工确认恢复。
-"""
 
 
 def read_sender_kind_document(data_dir: Path) -> dict:
