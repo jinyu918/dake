@@ -7,6 +7,7 @@ import hashlib
 import json
 
 from ..analysis.providers.xhub import configured_stream
+from .item_priority import refresh_item_priority
 from ..domain.manual_controls import (
     ManualDecisionRequest,
     ManualFieldAction,
@@ -146,6 +147,8 @@ class ManualDecisionService:
                 previous = event.to_dict()
                 for act in request.actions:
                     self._apply_action(event, act, operator=operator, reason=reason, decided_at=decided_at)
+                    if act.field == "priority" and act.action == "unlock":
+                        refresh_item_priority(event, store.customer_profile)
 
                 if event.review_items or preserved_external_flags:
                     event.review_flag = compose_review_flag(event.review_items, extra_flags=preserved_external_flags)
@@ -180,6 +183,7 @@ class ManualDecisionService:
                     "severity",
                     "priority",
                     "base_priority",
+                    "priority_detail",
                     "assignees",
                     "review_flag",
                     "manual_controls",

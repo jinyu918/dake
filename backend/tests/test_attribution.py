@@ -493,3 +493,87 @@ def test_response_evidence_rejects_unverified_or_unsupported_source(case):
     with pytest.raises(ValueError, match="优先级维度证据|普通催促或表情"):
         validate_priority_evidence(item, {msg.key: msg, anchor.key: anchor}, uid=UID,
                                    human_keys=human, customer_keys=customer)
+
+
+def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp_path, monkeypatch):
+    msg = message("preview", 1, "虚构客户 UID: affected-uid 的上传已出现局部降级，可绕行；另有 UID: pending-uid 可能受影响。")
+    other = replace(message("foreign", 1, "其他客户私有合成聊天"), uid="affected-uid")
+    store = MemoryStore()
+    for entry in (msg, other):
+        with store.transaction(entry.uid):
+            store.upsert_messages([entry])
+    store.profiles.update({UID: dict(level="L6", level_state="fresh"),
+                           "affected-uid": dict(level="L9", level_state="fresh"),
+                           "pending-uid": dict(level="L10", level_state="fresh")})
+    baseline = Settings(uid=UID, data_dir=tmp_path, start=window(1).start, end=window(3).end, provider="xhub")
+    settings = replace(baseline, priority_preview=True)
+    proposal = dict(impact="medium", urgency="unknown", reason="局部降级", **_priority_quote(msg),
+                    impact_evidence=_priority_quote(msg), affected_customers=[
+        dict(customer="affected-uid", uid="affected-uid", status="confirmed",
+             impact_quote="上传已出现局部降级", **_priority_quote(msg)),
+        dict(customer="pending-uid", uid="pending-uid", status="pending", impact_quote=None, **_priority_quote(msg)),
+    ])
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        assert b'affected_customers' in request.content
+        assert b'"message_id": "foreign"' not in request.content
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {
+            "content": model_output(msg, priority_proposal=proposal)}}]})
+
+    provider = XHubProvider(XHubConfig(model=settings.llm_model, api_key="synthetic-placeholder", max_tokens=8192),
+                            settings, transport=httpx.MockTransport(respond))
+    try:
+        assert provider.name == configured_stream(settings) != configured_stream(baseline)
+        service = IncrementalService(store, None, provider, settings)
+        event_id, = service.run_window(UID, window(1)).created
+        event = store.events[event_id]
+        assert (event.uid, event.base_priority, event.priority) == (UID, "P2", "P1")
+        detail = event.priority_detail
+        assert detail["effective_customer_uid"] == "affected-uid"
+        assert detail["affected_customers_pending"]
+        assert detail["affected_customers"][0]["evidence_refs"][0]["digest"] == msg.digest
+        assert (msg.key, configured_stream(baseline)) not in store.processed
+        from dake.domain.manual_controls import set_field_lock
+        from dake.services.item_priority import refresh_directory_priorities, refresh_item_priority
+
+        with store.transaction(UID):
+            event = store.events[event_id]
+            set_field_lock(event, "priority", True, operator="合成操作人", reason="保留响应档",
+                           decided_at=window(2).start.isoformat(), adopted_value="P1")
+            store.save_event(event)
+        store.profiles["affected-uid"]["level_state"] = "expired"
+        store.item_priority_scopes = lambda changed: [(UID, provider.name)] if "affected-uid" in changed else []
+        assert refresh_directory_priorities(store, ["affected-uid"]) == 1
+        updated = store.events[event_id]
+        assert updated.priority == "P1"
+        assert updated.priority_detail["pre_timer_priority"] == "P2"
+        assert updated.version == 2 and updated.updated_by[-1]["source"] == "directory"
+        set_field_lock(updated, "priority", False, operator="合成操作人", reason="采用最新建议",
+                       decided_at=window(2).end.isoformat())
+        assert refresh_item_priority(updated, store.customer_profile)
+        assert updated.priority == "P2"
+        assert not service.run_window(UID, window(3)).updated
+        assert len(calls) == 1
+    finally:
+        provider.close()
+
+
+def test_confirmed_impact_requires_literal_uid_and_a_separate_impact_quote():
+    from dake.analysis.validation import validate_priority_evidence
+
+    msg = message("impact-check", 1, "虚构工单号 affected-uid 未确定是否受影响")
+    fact = dict(customer="affected-uid", uid="invented", status="confirmed",
+                impact_quote="已停机", **_priority_quote(msg))
+    item = candidate(msg, priority_proposal=dict(impact="unknown", urgency="unknown", reason="待核实",
+                                                  affected_customers=[fact], **_priority_quote(msg)))
+    with pytest.raises(ValueError, match="UID"):
+        validate_priority_evidence(item, {msg.key: msg}, uid=UID, human_keys={msg.key}, customer_keys=set())
+    fact["uid"] = "affected-uid"
+    with pytest.raises(ValueError, match="UID"):
+        validate_priority_evidence(item, {msg.key: msg}, uid=UID, human_keys={msg.key}, customer_keys=set())
+    msg = replace(msg, content="虚构 UID: affected-uid 未确定是否受影响")
+    fact["quote"] = item.priority_proposal["quote"] = msg.content
+    with pytest.raises(ValueError, match="影响原文"):
+        validate_priority_evidence(item, {msg.key: msg}, uid=UID, human_keys={msg.key}, customer_keys=set())

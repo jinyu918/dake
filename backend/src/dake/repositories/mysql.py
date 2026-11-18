@@ -436,6 +436,20 @@ class MySQLStore:
             return None
         return dict(rows[0]) if rows else None
 
+    def item_priority_scopes(self, changed_uids):
+        from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION
+
+        scopes = set()
+        for uid in sorted(set(changed_uids)):
+            rows, _ = self._execute(
+                """SELECT DISTINCT uid,stream FROM events
+                   WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority_detail.rule_version'))=%s
+                     AND (uid=%s OR JSON_CONTAINS(payload,CAST(%s AS JSON),'$.priority_detail.affected_customers'))""",
+                (ITEM_PRIORITY_RULE_VERSION, uid, _json(dict(uid=uid, status="confirmed"))),
+            )
+            scopes.update((row["uid"], row["stream"]) for row in rows)
+        return sorted(scopes)
+
     def list_events(self, uid: str, stream: str) -> list[Event]:
         """读取一个客户、一个分析版本的事件；在内存侧排序，避免大体积 JSON 占满 MySQL 排序缓冲区。"""
         rows, _ = self._execute(

@@ -20,7 +20,7 @@ def build_service(settings: Settings, *, offline: bool = False) -> Iterator[Incr
     store = MySQLStore(**settings.store_kwargs())
     provider = None
     try:
-        source = OfficialChatSource(ChatRecordsClient(settings.chat_records_url), settings.data_dir, offline)
+        source = OfficialChatSource(ChatRecordsClient(settings.chat_records_url), settings.data_dir, offline or settings.priority_preview)
         provider = (XHubProvider(XHubConfig.load(settings.llm_model, max_tokens=settings.llm_max_tokens,
                                                 timeout_seconds=settings.llm_timeout_seconds), settings)
                     if settings.provider == "xhub" else StubProvider())

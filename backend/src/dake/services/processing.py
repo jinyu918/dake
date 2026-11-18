@@ -16,6 +16,7 @@ from .history_retrieval import HistoryRetriever
 from .history_context import HistoryContextService
 from .attribution import apply_attributions, preflight_attributions
 from .sender_kinds import FILTER_VERSION, kinds_fingerprint, load_sender_kinds, sender_kind
+from .item_priority import refresh_item_priority, save_priority_refresh
 from .sender_identity import confirmed_sender_role, load_sender_roles
 from .executions import run_recorded, message_ref
 from .late import classify_pending
@@ -82,7 +83,14 @@ class IncrementalService:
         roles = load_sender_roles(self.settings.data_dir)
         fingerprint = kinds_fingerprint(kinds)
         fetch_start = max(self.settings.start, window.start - self.settings.ingest_lookback)
-        messages = self.ingestion.load_window(uid, fetch_start, window.end)
+        if self.settings.priority_preview:
+            profile = _load_customer_profile(self.store, uid) or {}
+            if uid != "1383603926" and (window.start < parse_time("2026-11-10")
+                    or profile.get("level_state") != "fresh" or profile.get("level") not in {"L6", "L7", "L8", "L9", "L10"}):
+                raise ValueError("事项定级预览仅限现有授权范围")
+            messages = []
+        else:
+            messages = self.ingestion.load_window(uid, fetch_start, window.end)
         result = CycleResult(uid, self.stream, window)
         if recorder is not None:
             result.attempt_id = recorder.attempt_id
@@ -177,6 +185,20 @@ class IncrementalService:
                         events = [updated if event.event_id == updated.event_id else event for event in events]
                         if updated.event_id not in result.updated:
                             result.updated.append(updated.event_id)
+                if self.settings.priority_preview:
+                    profiles = {uid: customer_profile}
+
+                    def profile_for(customer_uid):
+                        if customer_uid not in profiles:
+                            profiles[customer_uid] = _load_customer_profile(self.store, customer_uid)
+                        return profiles[customer_uid]
+
+                    for event in events:
+                        if event.lifecycle_status not in {"已解决", "已取消"} and refresh_item_priority(event, profile_for):
+                            updated = event.event_id in result.updated or event.event_id in result.created
+                            save_priority_refresh(self.store, event, window, updated, attempt_id=result.attempt_id)
+                            if not updated:
+                                result.updated.append(event.event_id)
                 completed = [message for message in pending if message.key not in blocked]
                 self.store.mark_processed(completed, self.stream)
                 result.processed = len(completed)

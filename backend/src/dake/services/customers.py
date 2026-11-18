@@ -107,6 +107,11 @@ class CustomerSyncService:
         cycle = self.repository.save_window(run_id, runner_id, window, groups, pending_profiles,
             {"messages": count, "groups": len(groups), "customers": len({g["uid"] for g in groups if g["uid"]}),
              "profile_errors": profile_errors, "lookup_errors": lookup_errors, "isolated": isolated})
+        if pending_profiles and isinstance(self.repository, CustomerRepository):
+            from .item_priority import refresh_directory_priorities
+
+            with self.repository.connection() as store:
+                refresh_directory_priorities(store, pending_profiles)
         cycle["isolated"] = isolated
         return cycle
 

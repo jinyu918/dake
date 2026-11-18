@@ -100,6 +100,7 @@ class Settings:
     history_retrieval: HistoryRetrievalSettings = field(default_factory=HistoryRetrievalSettings)
     history_context: HistoryContextSettings = field(default_factory=HistoryContextSettings)
     provider: str = "stub"
+    priority_preview: bool = False
     llm_model: str = "gpt-6.1-sol"
     llm_max_tokens: int = 8192
     llm_timeout_seconds: int = 120

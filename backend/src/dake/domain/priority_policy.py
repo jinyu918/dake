@@ -113,10 +113,25 @@ def merge_priority_proposals(left: dict | None, right: dict | None) -> dict | No
     for field in PRIORITY_EVIDENCE_FIELDS[2:]:
         if fact := right.get(field) or left.get(field):
             merged[field] = fact
+    merged["affected_customers"] = merge_affected_customers(left.get("affected_customers", []), right.get("affected_customers", []))
     return deepcopy(merged)
 
 
-def _response_priority(customer_priority: str, signals: dict) -> str:
+def merge_affected_customers(previous: list[dict], incoming: list[dict]) -> list[dict]:
+    facts = {}
+    for fact in (*previous, *incoming):
+        key = ("uid", fact["uid"]) if fact.get("uid") else ("name", fact["customer"])
+        if fact["status"] == "confirmed" or facts.get(key, {}).get("status") != "confirmed":
+            facts[key] = fact
+    confirmed_by_name: dict[str, set[str]] = {}
+    for fact in facts.values():
+        if fact["status"] == "confirmed" and fact.get("uid"):
+            confirmed_by_name.setdefault(fact["customer"].strip(), set()).add(fact["uid"])
+    return deepcopy([fact for fact in facts.values() if fact.get("uid") or fact["status"] != "pending"
+                     or len(confirmed_by_name.get(fact["customer"].strip(), set())) != 1])
+
+
+def response_priority(customer_priority: str, signals: dict) -> str:
     if signals.get("escalated_emotion") and customer_priority != "P0":
         return "P1"
     if signals.get("strong_followup") and customer_priority == "P3":
@@ -144,7 +159,7 @@ def evaluate_priority_proposal(
             recalculated = apply_customer_tier(current_base_priority, level, level_state)
             detail = deepcopy(current_detail or {})
             customer_priority = recalculated["priority"]
-            priority = _response_priority(customer_priority, detail)
+            priority = response_priority(customer_priority, detail)
             if detail.get("rule_version") == ITEM_PRIORITY_RULE_VERSION:
                 recalculated.update(customer_priority=customer_priority, pre_timer_priority=priority, priority=priority)
             if priority != current_priority or any(
@@ -201,7 +216,7 @@ def evaluate_priority_proposal(
     tiered = apply_customer_tier(base, level, level_state)
     customer_priority = tiered["priority"]
     signals = {field: deepcopy(proposal[field]) for field in PRIORITY_EVIDENCE_FIELDS[2:] if proposal.get(field)}
-    pre_timer_priority = _response_priority(customer_priority, signals)
+    pre_timer_priority = response_priority(customer_priority, signals)
     detail = dict(
         **tiered,
         **objective,

@@ -126,11 +126,19 @@ class PriorityProposal(StrictObject):
     quote: str = Field(min_length=1)
 
 
+class AffectedCustomerEvidence(PriorityEvidence):
+    customer: str = Field(min_length=1)
+    uid: str | None
+    status: Literal["confirmed", "pending"]
+    impact_quote: str | None
+
+
 class EvidencePriorityProposal(PriorityProposal):
     impact_evidence: PriorityEvidence | None = None
     urgency_evidence: PriorityEvidence | None = None
     escalated_emotion: PriorityEvidence | None = None
     strong_followup: PriorityEvidence | None = None
+    affected_customers: list[AffectedCustomerEvidence] = Field(default_factory=list, max_length=20)
 
 
 class ExtractedCandidate(StrictObject):
@@ -276,6 +284,10 @@ def parse_output(
                 fact = getattr(item.priority_proposal, field, None)
                 if fact is not None:
                     quote_only_items.append((f"priority_proposal.{field}", fact))
+
+            if isinstance(item.priority_proposal, EvidencePriorityProposal):
+                quote_only_items.extend((f"priority_proposal.affected_customers[{i}]", fact)
+                                        for i, fact in enumerate(item.priority_proposal.affected_customers))
 
         errors = []
         if item.other_reason is not None and not item.other_reason.value.strip():

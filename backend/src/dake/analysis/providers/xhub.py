@@ -20,8 +20,8 @@ import httpx
 from ...config import DEFAULT_ENV_FILE, Settings
 from ...domain.models import Event, Message, message_order, parse_time
 from ...repositories.local_state import private_json
-from ..contract import ContractError, ExtractionOutput, parse_output, strict_schema
-from ..attribution import ATTRIBUTION_POLICY, AttributionOutput, attribution_version, parse_attribution_output
+from ..contract import ContractError, EvidenceExtractionOutput, ExtractionOutput, parse_output, strict_schema
+from ..attribution import ATTRIBUTION_POLICY, AttributionOutput, EvidenceAttributionOutput, attribution_version, parse_attribution_output
 
 PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "event_extraction_v1.txt"
 
@@ -56,10 +56,20 @@ class XHubConfig:
         return result
 
 
-def xhub_identity(model: str, response_format: str, max_tokens: int) -> dict:
+def _priority_prompt(preview: bool) -> bytes:
+    content = PROMPT_PATH.read_bytes()
+    if not preview:
+        return content
+    start = content.index("六、业务优先级".encode())
+    end = content.index("七、输出自检".encode(), start)
+    return content[:start] + PROMPT_PATH.with_name("priority_evidence_preview.txt").read_bytes() + b"\n" + content[end:]
+
+
+def xhub_identity(model: str, response_format: str, max_tokens: int, *, preview: bool = False) -> dict:
     """根据模型、提示词与严格合约生成稳定处理流，普通重跑不会重新消费旧消息。"""
-    prompt_hash = hashlib.sha256(PROMPT_PATH.read_bytes()).hexdigest()
-    schema = strict_schema(ExtractionOutput.model_json_schema())
+    prompt_hash = hashlib.sha256(_priority_prompt(preview)).hexdigest()
+    model_schema = EvidenceAttributionOutput if preview else ExtractionOutput
+    schema = strict_schema(model_schema.model_json_schema())
     schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
     signature = hashlib.sha256(f"{model}:{prompt_hash}:{schema_hash}:{response_format}:{max_tokens}".encode()).hexdigest()[:20]
     return dict(stream=f"xhub-v1-{signature}", prompt_hash=prompt_hash, schema_hash=schema_hash)
@@ -69,7 +79,7 @@ def configured_stream(settings: Settings) -> str:
     """供任务和查询共用分析版本计算，不创建网络连接，也不读取密钥。"""
     if settings.provider == "stub":
         return "stub-v1"
-    return xhub_identity(settings.llm_model, "json_schema", settings.llm_max_tokens)["stream"]
+    return xhub_identity(settings.llm_model, "json_schema", settings.llm_max_tokens, preview=settings.priority_preview)["stream"]
 
 
 class XHubProvider:
@@ -89,12 +99,14 @@ class XHubProvider:
         if repair_attempts not in (0, 1):
             raise XHubError("结构纠正最多允许一次")
         self.repair_attempts = repair_attempts
-        self.prompt = PROMPT_PATH.read_text(encoding="utf-8")
-        schema = strict_schema(ExtractionOutput.model_json_schema())
+        self.prompt = _priority_prompt(True).decode() if settings.priority_preview else PROMPT_PATH.read_text(encoding="utf-8")
+        self.extraction_model = EvidenceExtractionOutput if settings.priority_preview else ExtractionOutput
+        self.attribution_model = EvidenceAttributionOutput if settings.priority_preview else AttributionOutput
+        schema = strict_schema(self.extraction_model.model_json_schema())
         self.schema = schema
         self.prompt_hash = hashlib.sha256(self.prompt.encode()).hexdigest()
         self.schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
-        self.name = xhub_identity(config.model, config.response_format, config.max_tokens)["stream"]
+        self.name = xhub_identity(config.model, config.response_format, config.max_tokens, preview=settings.priority_preview)["stream"]
         self.client = httpx.Client(timeout=config.timeout_seconds, follow_redirects=False, transport=transport)
         self.traces: list[dict] = []
         self.sender_kinds = None
@@ -130,7 +142,7 @@ class XHubProvider:
             raise XHubError("历史候选不属于当前客户或分析流")
         self.history_retrieval = result
         self.history_context = None
-        self.schema = strict_schema(AttributionOutput.model_json_schema())
+        self.schema = strict_schema(self.attribution_model.model_json_schema())
         self.schema_hash = hashlib.sha256(json.dumps(self.schema, sort_keys=True).encode()).hexdigest()
 
     def configure_history_context(self, result):
@@ -304,10 +316,10 @@ class XHubProvider:
             parser = parse_attribution_output if self.history_retrieval is not None else parse_output
             normalizations = []
             candidates = parser(content, new_messages, context, visible_events,
-                **({"normalizations": normalizations,
+                **({"output_model": self.attribution_model, "normalizations": normalizations,
                     "require_type_labels": True,
                     "history_items": payload.get("history_context", {}).get("items", [])}
-                   if self.history_retrieval is not None else {}))
+                   if self.history_retrieval is not None else {"output_model": self.extraction_model}))
             trace["normalizations"] = normalizations
             supplied = {m.key for m in [*new_messages, *context]}
             supplied.update(item["id"] for item in payload.get("history_context", {}).get("items", []))

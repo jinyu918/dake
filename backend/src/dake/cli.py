@@ -24,6 +24,7 @@ def parser() -> argparse.ArgumentParser:
         ("fetch", "取数、适配并保存消息，不做分析"),
         ("process", "按配置或水位执行一个周期"),
         ("replay", "以配置周期连续回放指定范围"),
+        ("preview-priority", "用已持久化且已授权的聊天运行独立事项定级预览"),
     ):
         command = sub.add_parser(name, help=help_text)
         command.add_argument("--uid", help="客户 UID")
@@ -31,6 +32,8 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--end", help="日期含当天；ISO 时间戳不含端点")
         command.add_argument("--interval", type=duration, help="处理周期，例如 15m、1h、1d")
         command.add_argument("--offline", action="store_true", help="仅使用已保存的官方原始响应")
+        if name == "preview-priority":
+            command.set_defaults(offline=True)
         if name == "process":
             command.add_argument("--retry-attempt", help="明确接续当前范围的执行 ID；已提交时只恢复展示")
     return root
@@ -67,6 +70,10 @@ def main(argv=None) -> int:
             )
             settings.validate()
             validate_uid(settings.uid)
+        if args.command == "preview-priority":
+            if settings.provider != "xhub" or not args.start or not args.end:
+                raise ValueError("定级预览需要显式的起止时间和 XHub 配置")
+            settings = replace(settings, priority_preview=True)
         with build_service(settings, offline=getattr(args, "offline", False)) as service:
             settings = service.settings
             replay = ReplayService(service)
@@ -95,6 +102,8 @@ def main(argv=None) -> int:
                     return 0
                 show_result(result)
             else:
+                if args.command == "preview-priority":
+                    print(f"事项定级预览流 {service.stream}")
                 for result in replay.run_range(settings.uid, settings.start, settings.end, settings.interval):
                     show_result(result)
             print("本次状态与事件快照已保存在 data/state/、data/snapshots/。")

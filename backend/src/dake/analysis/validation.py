@@ -1,6 +1,7 @@
 """验证候选与证据来源，计算新增证据时间边界。"""
 
 from datetime import datetime
+import re
 
 from ..domain.models import Candidate, EVENT_LABELS, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Message
 from ..domain.priority_policy import IMPACT_LEVELS, PRIORITY_EVIDENCE_FIELDS, URGENCY_LEVELS
@@ -143,8 +144,9 @@ def priority_quote_matches(quote: str, messages: list[Message]) -> bool:
 def validate_priority_evidence(candidate, available, *, uid, human_keys, customer_keys):
     proposal = candidate.priority_proposal or {}
     candidate_keys = {available[key].key for key in candidate.evidence_ids}
-    for field in ("priority_proposal", *PRIORITY_EVIDENCE_FIELDS):
-        fact = (proposal or None) if field == "priority_proposal" else proposal.get(field)
+    facts = [("priority_proposal", proposal or None), *((field, proposal.get(field)) for field in PRIORITY_EVIDENCE_FIELDS)]
+    facts.extend(("affected_customer", fact) for fact in proposal.get("affected_customers", []))
+    for field, fact in facts:
         if fact is None:
             continue
         is_response = field in PRIORITY_EVIDENCE_FIELDS[2:]
@@ -156,6 +158,20 @@ def validate_priority_evidence(candidate, available, *, uid, human_keys, custome
         if any(key not in available or available[key].key not in allowed_keys or available[key].uid != uid for key in refs
                ) or not priority_quote_matches(quote, [available[key] for key in refs]):
             raise ValueError("优先级维度证据必须是当前事项的同客户本轮原文，情绪和催办须由已确认客户本人发出")
+        if field == "affected_customer":
+            customer, target = fact.get("customer"), fact.get("uid")
+            impact_quote = fact.get("impact_quote")
+            if not isinstance(customer, str) or not customer.strip() or customer not in quote:
+                raise ValueError("受影响客户必须在原文中明确出现")
+            if target is not None and (not isinstance(target, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}", target)
+                    or not re.search(rf"(?<![A-Za-z0-9_-])UID\s*[:：=]?\s*{re.escape(target)}(?![A-Za-z0-9_-])", quote, re.I)
+                    or target == uid):
+                raise ValueError("跨客户 UID 必须是原文中完整出现的其他客户标识")
+            status = fact.get("status")
+            if status not in {"confirmed", "pending"} or (status == "confirmed" and (
+                    target is None or not isinstance(impact_quote, str) or not impact_quote.strip()
+                    or impact_quote == customer or impact_quote not in quote)):
+                raise ValueError("已确认影响需要可回查的客户 UID 和已发生影响原文")
         if is_response:
             text = "".join(char for char in quote if char.isalnum())
             if not text or text in {"尽快", "请尽快", "麻烦尽快", "请尽快处理", "麻烦尽快处理"}:

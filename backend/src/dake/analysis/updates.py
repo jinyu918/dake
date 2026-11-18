@@ -13,7 +13,7 @@ from ..domain.manual_controls import (
     upsert_review_item,
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
-from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, evaluate_priority_proposal
+from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, evaluate_priority_proposal, merge_affected_customers
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
 from .summary_changes import explicitly_corrects_typed_attribute, prepare_summary, restrict_fields
@@ -51,6 +51,8 @@ def bind_candidate_evidence(candidate, available):
     proposal = candidate.priority_proposal
     if proposal is not None:
         proposal = _bound_fact(proposal, available)
+        if proposal.get("affected_customers"):
+            proposal["affected_customers"] = [_bound_fact(fact, available) for fact in proposal["affected_customers"]]
         for field in PRIORITY_EVIDENCE_FIELDS:
             if fact := proposal.get(field):
                 bound = _bound_fact(fact, available)
@@ -183,6 +185,8 @@ def _collect_supporting_keys(candidate, changes, available=None) -> set[str]:
         fact = (candidate.priority_proposal or {}).get(field)
         if fact:
             raw.update(fact["evidence_ids"])
+    for fact in (candidate.priority_proposal or {}).get("affected_customers", []):
+        raw.update(fact["evidence_ids"])
     if available is None:
         return raw
     return {available[key].key if key in available else key for key in raw}
@@ -475,8 +479,10 @@ def apply_candidate(
             if mapped_status != "状态未明":
                 event.lifecycle_status = mapped_status
 
+    old_impacts = (event.priority_detail or {}).get("affected_customers", [])
+    new_impacts = (candidate.priority_proposal or {}).get("affected_customers", [])
     # 5. 业务优先级确定性评估（Impact × Urgency + L9/L10 提档封顶）与人工锁保护
-    if candidate.priority_proposal is not None or (customer_profile is not None and event.base_priority != "待评估"):
+    if candidate.priority_proposal is not None or (not old_impacts and customer_profile is not None and event.base_priority != "待评估"):
         pp = candidate.priority_proposal
         pp_keys = [key for key in (pp or {}).get("evidence_ids", []) if key in available]
         pp_late = bool(not created and old_end_time is not None and pp_keys and max(available[k].sent_at for k in pp_keys) < old_end_time)
@@ -499,6 +505,9 @@ def apply_candidate(
                     f"锁定优先级（{event.priority}）收到新评估结果（{prio_eval['priority']}），待核对",
                     (pp or {}).get("evidence_refs", []),
                 )
+                if settings.priority_preview:
+                    event.base_priority = prio_eval["base_priority"]
+                    event.priority_detail = dict(prio_eval["detail"], priority=event.priority)
             else:
                 event.priority = prio_eval["priority"]
                 event.base_priority = prio_eval["base_priority"]
@@ -523,6 +532,10 @@ def apply_candidate(
                 event.closed_at = end
         else:
             event.closed_at = None
+
+    if old_impacts or new_impacts:
+        event.priority_detail = dict(event.priority_detail or {},
+                                     affected_customers=merge_affected_customers(old_impacts, new_impacts))
 
     if event.review_items or preserved_external_flags:
         event.review_flag = compose_review_flag(event.review_items, extra_flags=preserved_external_flags)
@@ -580,6 +593,7 @@ def apply_candidate(
             "severity",
             "priority",
             "base_priority",
+            "priority_detail",
             "assignees",
             "attributes",
             "types",
@@ -629,7 +643,7 @@ def apply_candidate(
 
 def snapshot_as_of(event: Event, end: datetime) -> dict | None:
     """恢复指定窗口结束时的自动处理快照，不把后续人工修改回填为历史窗口自动结果。"""
-    revisions = [r for r in event.updated_by if r.get("source") != "manual" and parse_time(r["window_end"]) <= end]
+    revisions = [r for r in event.updated_by if r.get("source") not in {"manual", "directory", "clock"} and parse_time(r["window_end"]) <= end]
     if not revisions:
         return None
     snapshot = deepcopy(revisions[-1]["snapshot"])

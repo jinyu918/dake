@@ -41,7 +41,7 @@ def receipt_for(result, events, completed, *, kind="analysis", parent=None, sour
     refs = []
     for snapshot in ([] if source_receipt is not None else snapshots):
         event = by_id[snapshot["event_id"]]
-        indexes = [i for i, rev in enumerate(event.updated_by) if rev.get("source") != "manual" and parse_time(rev["window_end"]) <= result.window.end]
+        indexes = [i for i, rev in enumerate(event.updated_by) if rev.get("source") not in {"manual", "directory", "clock"} and parse_time(rev["window_end"]) <= result.window.end]
         if not indexes:
             raise AttemptError("提交结果缺少可引用的事件版本")
         refs.append(dict(event_id=event.event_id, revision_index=indexes[-1], digest=fingerprint(snapshot)))
@@ -71,7 +71,7 @@ def restore_receipt(service, receipt):
         if not snapshot or (snapshot.get("uid"), snapshot.get("stream"), snapshot.get("event_id")) != (value["uid"], value["stream"], event.event_id):
             raise DeliveryError("业务已提交，但历史快照缺失或范围不符")
         snapshot["updated_by"] = [{k: v for k, v in r.items() if k != "snapshot"}
-            for r in event.updated_by[:index + 1] if r.get("source") != "manual" and parse_time(r["window_end"]) <= parse_time(value["window"]["end"])]
+            for r in event.updated_by[:index + 1] if r.get("source") not in {"manual", "directory", "clock"} and parse_time(r["window_end"]) <= parse_time(value["window"]["end"])]
         if fingerprint(snapshot) != ref["digest"]:
             raise DeliveryError("业务已提交，但原事件版本核验失败；不能用新版本替换")
         snapshots.append(snapshot)

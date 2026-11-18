@@ -15,6 +15,7 @@ from dake.domain.priority_policy import (
     customer_level_number,
     evaluate_priority_proposal,
     merge_priority_proposals,
+    merge_affected_customers,
     event_priority_sort_key,
 )
 from dake.domain.status_policy import evaluate_status_proposal, validate_status_shape
@@ -277,3 +278,11 @@ def test_batch_combines_independently_supported_impact_and_immediate_deadline():
     )
     assert evaluate_priority_proposal(merged, created=True)["base_priority"] == "P1"
     assert (merged["impact_evidence"], merged["urgency_evidence"]) == (impact, urgency)
+
+
+def test_only_unique_confirmation_resolves_name_only_candidate():
+    pending = dict(customer="合成客户", status="pending")
+    first = dict(customer="合成客户", status="confirmed", uid="synthetic-a")
+    second = dict(customer="合成客户", status="confirmed", uid="synthetic-b")
+    assert merge_affected_customers([pending], [first]) == [first]
+    assert merge_affected_customers([pending], [first, second]) == [pending, first, second]
