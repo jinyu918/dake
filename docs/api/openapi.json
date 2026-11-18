@@ -129,6 +129,98 @@
         }
       }
     },
+    "/api/v1/alert-previews": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "List Alert Previews",
+        "operationId": "list_alert_previews",
+        "parameters": [
+          {
+            "name": "uid",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Uid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPreviewList"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
+    },
     "/api/v1/events": {
       "get": {
         "tags": [
@@ -2258,6 +2350,142 @@
   },
   "components": {
     "schemas": {
+      "AlertPreview": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "alert_id": {
+            "type": "string",
+            "title": "Alert Id"
+          },
+          "round_id": {
+            "type": "string",
+            "title": "Round Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "queue": {
+            "type": "string",
+            "title": "Queue"
+          },
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          },
+          "original_severity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Severity"
+          },
+          "triggered_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Triggered At"
+          },
+          "recovered_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovered At"
+          },
+          "reminders": {
+            "items": {
+              "$ref": "#/components/schemas/AlertReminderPreview"
+            },
+            "type": "array",
+            "title": "Reminders"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "alert_id",
+          "round_id",
+          "state",
+          "priority",
+          "queue",
+          "pending",
+          "original_severity",
+          "triggered_at",
+          "recovered_at",
+          "reminders"
+        ],
+        "title": "AlertPreview"
+      },
+      "AlertPreviewList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AlertPreview"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "AlertPreviewList"
+      },
+      "AlertReminderPreview": {
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "title": "Message Id"
+          },
+          "at": {
+            "type": "string",
+            "title": "At"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority"
+          },
+          "route": {
+            "type": "string",
+            "title": "Route"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "at",
+          "priority",
+          "route",
+          "kind"
+        ],
+        "title": "AlertReminderPreview"
+      },
       "ChangeEvidence": {
         "properties": {
           "source": {

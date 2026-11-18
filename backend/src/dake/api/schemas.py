@@ -215,6 +215,32 @@ class EventRevision(APIModel):
     policy_version: str | None = None
 
 
+class AlertReminderPreview(APIModel):
+    message_id: str
+    at: str
+    priority: str
+    route: str
+    kind: str
+
+
+class AlertPreview(APIModel):
+    source: str
+    alert_id: str
+    round_id: str
+    state: str
+    priority: str
+    queue: str
+    pending: bool
+    original_severity: str | None = None
+    triggered_at: str | None = None
+    recovered_at: str | None = None
+    reminders: list[AlertReminderPreview]
+
+
+class AlertPreviewList(APIModel):
+    items: list[AlertPreview]
+
+
 class EventResponse(EventSnapshot):
     """事件详情及其变更历史；周期结果中的事件保持当时的版本。"""
 

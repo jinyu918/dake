@@ -238,7 +238,7 @@ def evaluate_priority_proposal(
 
 
 def event_priority_sort_key(event: dict, customer_profile: dict | None = None) -> tuple:
-    """列表排序复合键：未结束优先 -> 优先级档位 -> 超级大客 -> 客户等级序号 -> 最近消息时间倒序。"""
+    """按已保存处理档、超时、客户等级、响应信号及截止时间排序。"""
     from datetime import datetime
 
     lifecycle = event.get("lifecycle_status") or "状态未明"
@@ -249,15 +249,16 @@ def event_priority_sort_key(event: dict, customer_profile: dict | None = None) -
     profile = {} if detail.get("rule_version") == ITEM_PRIORITY_RULE_VERSION else customer_profile or {}
     level = profile.get("level") or detail.get("customer_level")
     state = profile.get("level_state") or detail.get("level_state")
-    super_rank = 0 if is_super_large(level, state) else 1
     level_num = customer_level_number(level, state)
-    end_ts = 0.0
-    raw_end = event.get("end_time")
-    if isinstance(raw_end, str) and raw_end:
-        try:
-            end_ts = datetime.fromisoformat(raw_end).timestamp()
-        except ValueError:
-            end_ts = 0.0
-    elif isinstance(raw_end, datetime):
-        end_ts = raw_end.timestamp()
-    return (ended, rank, super_rank, -level_num, -end_ts)
+    clock = detail.get("clock") or {}
+    deadline = clock.get("review_at") if clock.get("paused_at") else clock.get("deadline")
+    try:
+        due = datetime.fromisoformat(deadline).timestamp() if deadline else float("inf")
+    except (TypeError, ValueError):
+        due = float("inf")
+    overdue = bool(clock.get("overdue") or clock.get("review_due")) and clock.get("phase") != "stopped"
+    response = 0 if detail.get("escalated_emotion") else 1 if detail.get("strong_followup") else 2
+    review = 0 if detail.get("review_required") else 1
+    if rank == PRIORITY_RANKS["待评估"]:
+        return (ended, rank, review, due, event.get("event_id", ""))
+    return (ended, rank, not overdue, -level_num, response, due, event.get("event_id", ""))

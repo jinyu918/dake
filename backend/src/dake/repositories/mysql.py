@@ -520,6 +520,17 @@ class MySQLStore:
         self._execute("UPDATE alert_preview_rounds SET payload=%s WHERE source=%s AND alert_id=%s AND round_id=%s",
                       (_json(updated), *key))
 
+    def list_alert_previews(self, source, uid, limit):
+        statement = "SELECT payload FROM alert_preview_rounds WHERE source=%s"
+        values = (source,)
+        if uid is not None:
+            statement += " AND JSON_CONTAINS(payload,CAST(%s AS JSON),'$.members')"
+            values += (json.dumps(uid),)
+        statement += " ORDER BY FIELD(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.state')),'告警中','待匹配恢复','已恢复'),"
+        statement += " FIELD(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')),'P1','P2','P3','待核实'), alert_id,round_id LIMIT %s"
+        rows, _ = self._execute(statement, (*values, limit))
+        return [_decoded(row["payload"]) for row in rows]
+
     def due_priority_events(self, now, limit):
         rows, _ = self._execute(
             """SELECT uid,stream,event_id,CAST(JSON_EXTRACT(payload,'$.version') AS UNSIGNED) AS version

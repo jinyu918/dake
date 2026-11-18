@@ -24,48 +24,64 @@ const STATUS_CLASSES: Record<string, string> = {
   状态未明: 'unknown',
 };
 
-function customerLevelNumber(customer?: API.CustomerResponse): number {
-  if (
-    customer?.level_state === 'fresh' &&
-    customer.level &&
-    /^L(?:10|[0-9])$/.test(customer.level)
-  ) {
-    return Number.parseInt(customer.level.slice(1), 10);
-  }
-  return -1;
+function customerLevelNumber(level: unknown, state: unknown): number {
+  return state === 'fresh' &&
+    typeof level === 'string' &&
+    /^L(?:10|[0-9])$/.test(level)
+    ? Number(level.slice(1))
+    : -1;
 }
 
-/** 与后端一致的五层列表排序比较器：未结束优先 -> P0~P3 -> 超级大客 -> 等级数字 -> 最新消息时间。 */
+export function priorityClock(detail?: Record<string, unknown> | null) {
+  const clock = detail?.clock;
+  return clock && typeof clock === 'object'
+    ? (clock as Record<string, unknown>)
+    : {};
+}
+
 export function compareEventsByPriority(
   left: API.EventResponse,
   right: API.EventResponse,
   customerMap?: Map<string, API.CustomerResponse>,
 ): number {
-  const leftEnded =
-    left.lifecycle_status === '已解决' || left.lifecycle_status === '已取消'
-      ? 1
-      : 0;
-  const rightEnded =
-    right.lifecycle_status === '已解决' || right.lifecycle_status === '已取消'
-      ? 1
-      : 0;
-  if (leftEnded !== rightEnded) return leftEnded - rightEnded;
-
-  const leftRank = PRIORITY_RANKS[left.priority || '待评估'] ?? 4;
-  const rightRank = PRIORITY_RANKS[right.priority || '待评估'] ?? 4;
-  if (leftRank !== rightRank) return leftRank - rightRank;
-
-  const leftCustomer = customerMap?.get(left.uid);
-  const rightCustomer = customerMap?.get(right.uid);
-  const leftSuper = leftCustomer?.is_super_large ? 0 : 1;
-  const rightSuper = rightCustomer?.is_super_large ? 0 : 1;
-  if (leftSuper !== rightSuper) return leftSuper - rightSuper;
-
-  const leftLevel = customerLevelNumber(leftCustomer);
-  const rightLevel = customerLevelNumber(rightCustomer);
-  if (leftLevel !== rightLevel) return rightLevel - leftLevel;
-
-  return right.end_time.localeCompare(left.end_time);
+  function keys(event: API.EventResponse) {
+    const detail = event.priority_detail;
+    const clock = priorityClock(detail);
+    const ended = Number(
+      event.lifecycle_status === '已解决' ||
+        event.lifecycle_status === '已取消',
+    );
+    const rank = PRIORITY_RANKS[event.priority || '待评估'] ?? 4;
+    const deadline = clock.paused_at ? clock.review_at : clock.deadline;
+    const parsed =
+      typeof deadline === 'string' ? Date.parse(deadline) : Number.NaN;
+    const due = Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+    if (rank === 4) return [ended, rank, Number(!detail?.review_required), due];
+    const saved = detail?.rule_version === 'item-priority-v1';
+    const profile = saved ? undefined : customerMap?.get(event.uid);
+    const level = customerLevelNumber(
+      profile?.level || detail?.customer_level,
+      profile?.level_state || detail?.level_state,
+    );
+    const response = detail?.escalated_emotion
+      ? 0
+      : detail?.strong_followup
+        ? 1
+        : 2;
+    const overdue =
+      clock.phase !== 'stopped' && (clock.overdue || clock.review_due);
+    return [ended, rank, Number(!overdue), -level, response, due];
+  }
+  const leftKeys = keys(left);
+  const rightKeys = keys(right);
+  for (const [index, key] of leftKeys.entries()) {
+    if (key !== rightKeys[index]) return key < rightKeys[index] ? -1 : 1;
+  }
+  return left.event_id === right.event_id
+    ? 0
+    : left.event_id < right.event_id
+      ? -1
+      : 1;
 }
 
 /** 展示业务优先级徽标及超级大客提档、人工锁定标记。 */
@@ -84,6 +100,7 @@ export function PriorityBadge({
 }) {
   const value = priority || '待评估';
   const tone = PRIORITY_CLASSES[value] || 'pending';
+  const clock = priorityClock(detail);
   const vipBoosted = Boolean(detail?.vip_boosted);
   const levelNote =
     typeof detail?.level_note === 'string' ? detail.level_note : '';
@@ -97,6 +114,11 @@ export function PriorityBadge({
       {!compact && vipBoosted && basePriority && basePriority !== value && (
         <small className="priority-pill-sub">基 {basePriority}</small>
       )}
+      {clock.phase !== 'stopped' && clock.overdue ? <small>超时</small> : null}
+      {clock.review_due ? <small>复查到期</small> : null}
+      {basePriority === '待评估' && value !== '待评估' ? (
+        <small>影响待评估</small>
+      ) : null}
       {locked && <Lock size={10} aria-label="已人工锁定" />}
     </span>
   );

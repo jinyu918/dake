@@ -1,4 +1,47 @@
 declare namespace API {
+  type AlertPreview = {
+    /** Source */
+    source: string;
+    /** Alert Id */
+    alert_id: string;
+    /** Round Id */
+    round_id: string;
+    /** State */
+    state: string;
+    /** Priority */
+    priority: string;
+    /** Queue */
+    queue: string;
+    /** Pending */
+    pending: boolean;
+    /** Original Severity */
+    original_severity: string | null;
+    /** Triggered At */
+    triggered_at: string | null;
+    /** Recovered At */
+    recovered_at: string | null;
+    /** Reminders */
+    reminders: AlertReminderPreview[];
+  };
+
+  type AlertPreviewList = {
+    /** Items */
+    items: AlertPreview[];
+  };
+
+  type AlertReminderPreview = {
+    /** Message Id */
+    message_id: string;
+    /** At */
+    at: string;
+    /** Priority */
+    priority: string;
+    /** Route */
+    route: string;
+    /** Kind */
+    kind: string;
+  };
+
   type ChangeEvidence = {
     /** Source */
     source: string;
@@ -921,6 +964,11 @@ declare namespace API {
   };
 
   type JsonValue = Record<string, any>;
+
+  type listAlertPreviewsParams = {
+    uid?: string | null;
+    limit?: number;
+  };
 
   type listCustomerGroupsParams = {
     uid?: string | null;

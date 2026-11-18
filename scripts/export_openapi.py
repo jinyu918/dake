@@ -16,7 +16,7 @@ def main() -> None:
         # 只生成全部路由的结构；显式空依赖不创建生产仓库，也不执行应用生命周期。
         app = create_app(Settings(uid="schema-export", data_dir=Path(directory)), run_repository=object(), runner=object(),
                          query_service=object(), start_worker=False)
-        destination.write_text(json.dumps(app.openapi(), ensure_ascii=False, indent=2) + "\n")
+        destination.write_text(json.dumps(app.openapi(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print("接口定义已更新：docs/api/openapi.json")
 
 

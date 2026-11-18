@@ -14,6 +14,7 @@ import { savedEventScopes } from '@/lib/customerEvents';
 import { useResource } from '@/lib/useResource';
 import { formatTime } from '@/lib/utils';
 import { api } from '@/services/api';
+import { AlertPreviews } from './AlertPreviews';
 import { CustomerSwitcher, customerTierBadge } from './CustomerSwitcher';
 import { EventChangesDrawer } from './EventChangesDrawer';
 import { EventListFilters } from './EventListFilters';
@@ -289,6 +290,7 @@ export default function EventsPage() {
           />
         </div>
       </header>
+      <AlertPreviews uid={isAllCustomers ? undefined : uid} />
 
       {invalidRange ? (
         <p role="alert">开始日期不能晚于结束日期，请调整范围。</p>

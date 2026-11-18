@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
 from ..dependencies import AppServices, services
 from ..schemas import (
+    AlertPreviewList,
     ConfigResponse,
     EventChangesResponse,
     EventContextResponse,
@@ -23,6 +24,12 @@ Deps = Annotated[AppServices, Depends(services)]
 def get_config(deps: Deps):
     """读取界面缺省与客户统计，不返回敏感运行配置。"""
     return deps.queries.config()
+
+
+@router.get("/alert-previews", response_model=AlertPreviewList, operation_id="list_alert_previews", tags=["events"])
+def list_alert_previews(deps: Deps, uid: str | None = Query(default=None, max_length=128),
+                        limit: int = Query(default=100, ge=1, le=200)):
+    return deps.queries.alert_previews(uid, limit)
 
 
 @router.get("/events", response_model=EventListResponse, operation_id="list_events", tags=["events"])

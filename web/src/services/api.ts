@@ -10,6 +10,7 @@ import {
   getEventChanges,
   getEventContext,
   getManualDecision,
+  listAlertPreviews,
   listEvents,
   submitManualDecision,
 } from './generated/events';
@@ -67,6 +68,8 @@ export const api = {
     body: API.CustomerSyncRequest,
   ): Promise<API.CustomerSyncResponse> => createCustomerSync(body),
   config: (signal?: AbortSignal) => getConfig({ signal }),
+  alertPreviews: (uid?: string, signal?: AbortSignal) =>
+    listAlertPreviews({ uid }, { signal }),
   events: (
     uid: string,
     stream: string,

@@ -593,3 +593,38 @@ def test_saved_emotion_priority_survives_listing_filter_and_detail(tmp_path):
     assert queries.events(UID, "stub-v1", priority="P2")["items"] == []
     item, = queries.events(UID, "stub-v1", priority="P1")["items"]
     assert item == queries.event(event.event_id, UID, "stub-v1")
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_alert_preview_http_returns_only_preview_fields_in_requested_scope(tmp_path, monkeypatch, enabled):
+    import asyncio
+    import httpx
+
+    settings = replace(Settings(), data_dir=tmp_path, uid=UID,
+                       synthetic_alert_source="local-fixture" if enabled else None)
+    store = MemoryStore()
+    calls = []
+
+    def previews(source, uid, limit):
+        calls.append((source, uid, limit))
+        return [dict(source=source, alert_id="fixture", round_id="r1", state="已恢复", priority="P1",
+                     queue="值班或 TAM", pending=False, members=[uid], affected_uids=[uid], reminders=[])]
+
+    monkeypatch.setattr(store, "list_alert_previews", previews, raising=False)
+    app = create_app(settings, store_factory=BoundStoreFactory(store), start_worker=False)
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver") as client:
+            response = await client.get("/api/v1/alert-previews", params=dict(uid=UID, limit=3))
+            assert response.status_code == 200
+            items = response.json()["items"]
+            if enabled:
+                row, = items
+                assert row["state"] == "已恢复" and row["priority"] == "P1"
+                assert not {"members", "affected_uids"}.intersection(row)
+            else:
+                assert items == []
+            assert (await client.get("/api/v1/alert-previews", params=dict(limit=201))).status_code == 422
+
+    asyncio.run(exercise())
+    assert calls == ([("local-fixture", UID, 3)] if enabled else [])

@@ -246,3 +246,140 @@ test('变化面板正确识别并展示人工裁定修订', () => {
   expect(markup).toContain('人工裁定');
   expect(markup).toContain('调整为等待内部支撑并升为 P1');
 });
+
+function workbenchItem(
+  id: string,
+  level = 'L6',
+  options: {
+    uid?: string;
+    priority?: API.EventResponse['priority'];
+    due?: string;
+    overdue?: boolean;
+    signals?: Record<string, boolean>;
+  } = {},
+) {
+  return makeEvent({
+    event_id: id,
+    uid: options.uid ?? '100000001',
+    lifecycle_status: '跟进中',
+    priority: options.priority ?? 'P1',
+    summary: id,
+    priority_detail: {
+      rule_version: 'item-priority-v1',
+      customer_level: level,
+      level_state: 'fresh',
+      clock: {
+        deadline: options.due ?? '2038-06-01T10:00:00+08:00',
+        phase: 'handoff',
+        overdue: options.overdue ?? false,
+      },
+      ...options.signals,
+    },
+  });
+}
+
+test('同档优先按超时、保存等级、响应信号、绝对截止时间及事件 ID 排序', () => {
+  const fixtures = [
+    workbenchItem('late-due', 'L6', { due: '2038-06-01T03:00:00Z' }),
+    workbenchItem('early-due'),
+    workbenchItem('b-tie'),
+    workbenchItem('a-tie'),
+    workbenchItem('followup', 'L6', { signals: { strong_followup: true } }),
+    workbenchItem('emotion', 'L6', { signals: { escalated_emotion: true } }),
+    workbenchItem('higher-level', 'L10'),
+    workbenchItem('overdue', 'L1', { overdue: true }),
+    workbenchItem('review-first', 'L6', {
+      priority: '待评估',
+      signals: { review_required: true },
+    }),
+    workbenchItem('review-later', 'L6', {
+      priority: '待评估',
+      due: '2038-06-01T01:00:00Z',
+    }),
+  ];
+  expect(
+    fixtures.sort(compareEventsByPriority).map((item) => item.event_id),
+  ).toEqual([
+    'overdue',
+    'higher-level',
+    'emotion',
+    'followup',
+    'a-tie',
+    'b-tie',
+    'early-due',
+    'late-due',
+    'review-first',
+    'review-later',
+  ]);
+});
+
+test('工作台合并客户事项并按客户范围读取告警预览', async ({ page }) => {
+  const firstUid = '100000001';
+  const secondUid = '100000002';
+  const first = workbenchItem('跨客户早到期', 'L6');
+  const second = workbenchItem('跨客户晚到期', 'L6', {
+    uid: secondUid,
+    due: '2038-06-01T03:00:00Z',
+  });
+  const alertScopes: Array<string | null> = [];
+  await page.route('**/api/v1/**', async (route) => {
+    const url = new URL(route.request().url());
+    const uid = url.searchParams.get('uid');
+    if (url.pathname.endsWith('/config')) {
+      await route.fulfill({
+        json: {
+          customers: [firstUid, secondUid].map((id) => ({
+            uid: id,
+            label: `合成客户 ${id}`,
+            stream: 'stub-v1',
+            event_count: 1,
+          })),
+        },
+      });
+    } else if (url.pathname.endsWith('/events')) {
+      await route.fulfill({
+        json: { items: uid === firstUid ? [first] : [second], total: 1 },
+      });
+    } else if (url.pathname.endsWith('/alert-previews')) {
+      alertScopes.push(uid);
+      await route.fulfill({
+        json: {
+          items: [
+            {
+              source: 'local-fixture',
+              alert_id: 'fixture-alert',
+              round_id: 'fixture-round',
+              priority: 'P1',
+              state: '已恢复',
+              queue: '值班或 TAM',
+              pending: false,
+              reminders: [
+                {
+                  message_id: 'fixture-trigger',
+                  at: '2038-06-01T01:00:00Z',
+                  priority: 'P1',
+                  route: '值班或 TAM',
+                  kind: '历史首次触发',
+                },
+              ],
+            },
+          ],
+        },
+      });
+    } else {
+      await route.fulfill({ json: {} });
+    }
+  });
+  await page.goto('/events');
+  await expect(page.locator('.event-row-preview')).toHaveText([
+    '跨客户早到期',
+    '跨客户晚到期',
+  ]);
+  await page.getByText('机器人告警预览', { exact: true }).click();
+  await expect(page.getByText(/历史首次触发/)).toBeVisible();
+  await page.goto(`/events?uid=${firstUid}`);
+  await expect(page.locator('.event-row-preview')).toHaveText(['跨客户早到期']);
+  await page.getByText('机器人告警预览', { exact: true }).click();
+  await expect(page.getByText(/历史首次触发/)).toBeVisible();
+  expect(alertScopes).toEqual([null, firstUid]);
+});

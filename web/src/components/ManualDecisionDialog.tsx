@@ -1,6 +1,7 @@
 import { AlertTriangle, Lock, SlidersHorizontal, Unlock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { api } from '@/services/api';
+import { ItemPriorityDetails } from './ClassificationDetails';
 import { ErrorNotice } from './Feedback';
 import { Button } from './ui/button';
 import {
@@ -549,6 +550,8 @@ export function ManualDecisionDialog({
                   ))}
                 </select>
               </label>
+
+              <ItemPriorityDetails event={event} />
 
               <label className="form-field">
                 <span className="manual-field-head">

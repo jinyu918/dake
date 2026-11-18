@@ -2,6 +2,23 @@
 /* eslint-disable */
 import { request } from "@/services/request";
 
+/** List Alert Previews GET /api/v1/alert-previews */
+export async function listAlertPreviews(
+  // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)
+  params: API.listAlertPreviewsParams,
+  options?: { signal?: AbortSignal }
+) {
+  return request<API.AlertPreviewList>("/api/v1/alert-previews", {
+    method: "GET",
+    params: {
+      // limit has a default value: 100
+      limit: "100",
+      ...params,
+    },
+    ...(options || {}),
+  });
+}
+
 /** List Events 按客户、分析流及可选类型、状态、优先级筛选当前事件。 GET /api/v1/events */
 export async function listEvents(
   // 叠加生成的Param类型 (非body参数swagger默认没有生成对象)

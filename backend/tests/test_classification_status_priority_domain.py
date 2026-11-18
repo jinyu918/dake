@@ -286,3 +286,20 @@ def test_only_unique_confirmation_resolves_name_only_candidate():
     second = dict(customer="合成客户", status="confirmed", uid="synthetic-b")
     assert merge_affected_customers([pending], [first]) == [first]
     assert merge_affected_customers([pending], [first, second]) == [pending, first, second]
+
+
+def test_workbench_priority_order_uses_saved_level_response_and_absolute_deadline():
+    def item(event_id, level="L6", *, priority="P1", due="2038-06-01T10:00:00+08:00", **signals):
+        overdue = signals.pop("overdue", False)
+        return dict(event_id=event_id, priority=priority, lifecycle_status="跟进中", priority_detail=dict(
+            rule_version="item-priority-v1", customer_level=level, level_state="fresh",
+            clock=dict(deadline=due, phase="handoff", overdue=overdue), **signals))
+
+    fixtures = [item("late-due", due="2038-06-01T03:00:00Z"), item("early-due"),
+                item("b-tie"), item("a-tie"), item("followup", strong_followup=True),
+                item("emotion", escalated_emotion=True), item("higher-level", "L10"),
+                item("overdue", "L1", overdue=True), item("review-first", priority="待评估", review_required=True),
+                item("review-later", priority="待评估", due="2038-06-01T01:00:00Z")]
+    assert [e["event_id"] for e in sorted(fixtures, key=event_priority_sort_key)] == [
+        "overdue", "higher-level", "emotion", "followup", "a-tie", "b-tie", "early-due", "late-due",
+        "review-first", "review-later"]

@@ -159,6 +159,14 @@ class QueryService:
                     priorities=list(PRIORITIES),
                     provider=self.settings.provider, customers=customers)
 
+    def alert_previews(self, uid=None, limit=100):
+        if uid is not None:
+            validate_uid(uid)
+        if self.settings.synthetic_alert_source is None:
+            return {"items": []}
+        with self.connection() as store:
+            return {"items": store.list_alert_previews(self.settings.synthetic_alert_source, uid, limit)}
+
     def events(self, uid=None, stream=None, event_type=None, status=None, priority=None):
         """返回当前事件版本，支持多标签、生命周期状态和业务优先级筛选与分层排序。"""
         uid, stream = self.scope(uid, stream)
