@@ -440,3 +440,56 @@ def test_grouping_late_and_current_feedback_keeps_newer_state(tmp_path):
     result = service.run_window(UID, window(11))
     assert result.updated == [event_id] and store.events[event_id].status == "虚构验证中"
     assert store.events[event_id].summary == current.content
+
+
+def _priority_quote(message):
+    return dict(evidence_ids=[message.key], quote=message.content)
+
+
+@pytest.mark.parametrize("explicit", [True, False])
+def test_same_window_keeps_independent_impact_and_customer_response(tmp_path, monkeypatch, explicit):
+    service, store, provider, source, old, event_id = opened(tmp_path)
+    impact = message("impact", 2, "虚构上传仅一个节点降级，已有绕行")
+    emotion = message("emotion", 2, "虚构上传等得受不了了，现在请给我一个明确答复")
+    emotion = replace(emotion, sent_at=impact.sent_at + timedelta(minutes=1))
+    monkeypatch.setattr("dake.services.processing.load_sender_roles", lambda _: {
+        (UID, emotion.source, emotion.sender_id): "customer",
+    })
+    objective = dict(impact="medium", urgency="unknown", reason="局部降级", **_priority_quote(impact),
+                     impact_evidence=_priority_quote(impact))
+    response = dict(impact="unknown", urgency="unknown", reason="明显情绪升级", **_priority_quote(emotion),
+                    escalated_emotion=_priority_quote(emotion))
+    source.messages += [impact, emotion]
+    for msg, proposal in [(impact, objective), (emotion, response)]:
+        item = candidate(msg, "update", event_id, [old], priority_proposal=proposal)
+        provider.mapping[msg.message_id] = item if explicit else replace(item, decision=None)
+    assert service.run_window(UID, window(2)).updated == [event_id]
+    saved = store.events[event_id]
+    assert (saved.base_priority, saved.priority_detail["customer_priority"], saved.priority) == ("P2", "P2", "P1")
+    for field, message_ref in [("impact_evidence", impact), ("escalated_emotion", emotion)]:
+        ref, = saved.priority_detail[field]["evidence_refs"]
+        assert (ref["message_id"], ref["digest"], ref["uid"], ref["sender_id"]) == (
+            message_ref.message_id, message_ref.digest, UID, message_ref.sender_id,
+        )
+
+
+@pytest.mark.parametrize("case", ["internal", "unverified", "bot", "foreign_uid", "unrelated", "invented", "plain", "emoji"])
+def test_response_evidence_rejects_unverified_or_unsupported_source(case):
+    from dake.analysis.validation import validate_priority_evidence
+
+    msg = message("response", 2, {"plain": "请尽快！", "emoji": "😡"}.get(case, "虚构上传等得受不了了"))
+    if case == "foreign_uid":
+        msg = replace(msg, uid="another-synthetic-customer")
+    fact = _priority_quote(msg)
+    if case == "invented":
+        fact["quote"] = "杜撰引文"
+    anchor = message("anchor", 2)
+    item = candidate(anchor, priority_proposal=dict(impact="unknown", urgency="unknown", reason="合成响应",
+                     **_priority_quote(anchor), escalated_emotion=fact))
+    if case != "unrelated":
+        item.evidence_ids.append(msg.key)
+    human = {anchor.key} if case == "bot" else {anchor.key, msg.key}
+    customer = set() if case in {"internal", "unverified", "bot"} else {msg.key}
+    with pytest.raises(ValueError, match="优先级维度证据|普通催促或表情"):
+        validate_priority_evidence(item, {msg.key: msg, anchor.key: anchor}, uid=UID,
+                                   human_keys=human, customer_keys=customer)

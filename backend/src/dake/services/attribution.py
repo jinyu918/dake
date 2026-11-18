@@ -14,10 +14,10 @@ from ..analysis.summary_changes import (
     validate_changes,
 )
 from ..analysis.updates import apply_candidate, has_structured_change
-from ..analysis.validation import candidate_times
+from ..analysis.validation import candidate_times, validate_priority_evidence
 from ..config import REVIEW
 from ..domain.models import message_order
-from ..domain.priority_policy import PRIORITY_RANKS, calculate_base_priority
+from ..domain.priority_policy import merge_priority_proposals
 
 
 class _ValidationStore:
@@ -99,18 +99,6 @@ def _merge_extraction(left, right):
     return result
 
 
-def _pick_higher_priority_proposal(left: dict | None, right: dict | None) -> dict | None:
-    if right is None:
-        return deepcopy(left)
-    if left is None:
-        return deepcopy(right)
-    left_base = calculate_base_priority(left["impact"], left["urgency"])
-    right_base = calculate_base_priority(right["impact"], right["urgency"])
-    if PRIORITY_RANKS[right_base] <= PRIORITY_RANKS[left_base]:
-        return deepcopy(right)
-    return deepcopy(left)
-
-
 def _combine(candidates, old, available, new_keys):
     """按消息时间合并同一事项的多个进展，保留直接字段来源并标记未解属性冲突。"""
     combined = None
@@ -148,7 +136,7 @@ def _combine(candidates, old, available, new_keys):
             combined.severity = candidate.severity or combined.severity
             combined.assignees = candidate.assignees or combined.assignees
             combined.status_proposal = candidate.status_proposal or combined.status_proposal
-            combined.priority_proposal = _pick_higher_priority_proposal(
+            combined.priority_proposal = merge_priority_proposals(
                 combined.priority_proposal, candidate.priority_proposal
             )
             combined.other_reason = candidate.other_reason or combined.other_reason
@@ -243,10 +231,16 @@ def apply_attributions(
     """先核对整批，再按消息时间执行；恢复与再次发生分别保存，不被批内合并压平。"""
     new_keys = {m.key for m in pending}
     human_keys = {m.key for m in eligible}
+    customer_keys = set(customer_keys) & human_keys
     plans = []
     for candidate in candidates:
         if any(key not in new_keys for key in candidate.evidence_ids):
             raise ContractError("明确归属的写入证据只能来自本批新增或变更消息，旧背景须放在 basis")
+        try:
+            validate_priority_evidence(candidate, available, uid=result.uid, human_keys=human_keys,
+                                       customer_keys=customer_keys)
+        except ValueError as error:
+            raise ContractError(str(error)) from None
         validate_changes(candidate, available, human_keys)
         validate_continuity(candidate, available, human_keys)
         record = decide(

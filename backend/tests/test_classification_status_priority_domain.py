@@ -14,6 +14,7 @@ from dake.domain.priority_policy import (
     calculate_base_priority,
     customer_level_number,
     evaluate_priority_proposal,
+    merge_priority_proposals,
     event_priority_sort_key,
 )
 from dake.domain.status_policy import evaluate_status_proposal, validate_status_shape
@@ -226,3 +227,53 @@ def test_lock_conflict_and_review_flag_length_cap():
     assert len(flag) <= MAX_REVIEW_FLAG_CHARS < 128
     assert "待核对" in flag
     assert PENDING_TYPE == "待分类" and "其他" in EVENT_LABELS
+
+
+@pytest.mark.parametrize(("impact", "expected"), [
+    ("critical", ("P0", "P0", "P0", "P0")),
+    ("high", ("P1", "P1", "P1", "P1")),
+    ("medium", ("P1", "P2", "P2", "P2")),
+    ("low", ("P2", "P2", "P3", "P3")),
+    ("unknown", ("待评估", "待评估", "待评估", "待评估")),
+])
+def test_full_base_priority_matrix(impact, expected):
+    assert tuple(calculate_base_priority(impact, urgency)
+                 for urgency in ("immediate", "soon", "normal", "unknown")) == expected
+
+
+@pytest.mark.parametrize(("impact", "signal", "level", "state", "expected"), [
+    ("unknown", "escalated_emotion", "L3", "fresh", ("待评估", "待评估", "P1", True)),
+    ("unknown", "strong_followup", "L3", "fresh", ("待评估", "待评估", "待评估", True)),
+    ("low", "strong_followup", "L6", "fresh", ("P3", "P3", "P2", False)),
+    ("medium", "escalated_emotion", "L10", "expired", ("P2", "P2", "P1", False)),
+    ("medium", None, "L10", "fresh", ("P2", "P1", "P1", False)),
+    ("critical", "escalated_emotion", "L10", "fresh", ("P0", "P0", "P0", False)),
+])
+def test_response_priority_keeps_objective_and_customer_steps(impact, signal, level, state, expected):
+    proposal = dict(impact=impact, urgency="normal", reason="合成证据")
+    if impact == "critical":
+        proposal["impact_evidence"] = dict(evidence_ids=["synthetic:impact"], quote="关键生产链路全量中断且无绕行")
+    if signal:
+        proposal[signal] = dict(evidence_ids=["synthetic:quote"], quote="合成反馈")
+    result = evaluate_priority_proposal(proposal, customer_profile=dict(level=level, level_state=state), created=True)
+    detail = result["detail"]
+    assert (result["base_priority"], detail["customer_priority"], result["priority"], detail["review_required"]) == expected
+    assert detail["pre_timer_priority"] == result["priority"]
+
+
+def test_legacy_critical_without_dedicated_impact_evidence_requires_review():
+    proposal = dict(impact="critical", urgency="immediate", reason="待核实",
+                    evidence_ids=["synthetic:report"], quote="请立即查看")
+    result = evaluate_priority_proposal(proposal, created=True)
+    assert (result["base_priority"], result["priority"], result["detail"]["review_required"]) == ("待评估", "待评估", True)
+
+
+def test_batch_combines_independently_supported_impact_and_immediate_deadline():
+    impact = dict(evidence_ids=["synthetic:impact"], quote="一个节点降级，存在绕行")
+    urgency = dict(evidence_ids=["synthetic:urgency"], quote="目前持续写入错误数据，须立即停止写入")
+    merged = merge_priority_proposals(
+        dict(impact="medium", urgency="unknown", impact_evidence=impact, reason="局部降级", **impact),
+        dict(impact="unknown", urgency="immediate", urgency_evidence=urgency, reason="立即止损", **urgency),
+    )
+    assert evaluate_priority_proposal(merged, created=True)["base_priority"] == "P1"
+    assert (merged["impact_evidence"], merged["urgency_evidence"]) == (impact, urgency)

@@ -13,7 +13,7 @@ from ..domain.manual_controls import (
     upsert_review_item,
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
-from ..domain.priority_policy import evaluate_priority_proposal
+from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, evaluate_priority_proposal
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
 from .summary_changes import explicitly_corrects_typed_attribute, prepare_summary, restrict_fields
@@ -48,6 +48,17 @@ def _bound_fact(fact: dict, available: dict) -> dict:
 
 def bind_candidate_evidence(candidate, available):
     """将输入消息版本（含 digest 与发送时间）绑定到分类、属性及状态/优先级提案。"""
+    proposal = candidate.priority_proposal
+    if proposal is not None:
+        proposal = _bound_fact(proposal, available)
+        for field in PRIORITY_EVIDENCE_FIELDS:
+            if fact := proposal.get(field):
+                bound = _bound_fact(fact, available)
+                for ref in bound.get("evidence_refs", []):
+                    message = available.get(f"{ref['source']}:{ref['message_id']}")
+                    if message is not None:
+                        ref.update(uid=message.uid, sender_id=message.sender_id)
+                proposal[field] = bound
     return replace(
         candidate,
         type_evidence={
@@ -64,7 +75,7 @@ def bind_candidate_evidence(candidate, available):
         },
         other_reason=_bound_fact(candidate.other_reason, available) if candidate.other_reason else None,
         status_proposal=_bound_fact(candidate.status_proposal, available) if candidate.status_proposal else None,
-        priority_proposal=_bound_fact(candidate.priority_proposal, available) if candidate.priority_proposal else None,
+        priority_proposal=proposal,
     )
 
 
@@ -168,6 +179,10 @@ def _collect_supporting_keys(candidate, changes, available=None) -> set[str]:
     for single in (candidate.other_reason, candidate.status_proposal, candidate.priority_proposal):
         if single:
             raw.update(single.get("evidence_ids", []))
+    for field in PRIORITY_EVIDENCE_FIELDS:
+        fact = (candidate.priority_proposal or {}).get(field)
+        if fact:
+            raw.update(fact["evidence_ids"])
     if available is None:
         return raw
     return {available[key].key if key in available else key for key in raw}

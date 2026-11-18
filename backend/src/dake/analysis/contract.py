@@ -6,9 +6,9 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from ..domain.models import Candidate, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Event, Message
-from ..domain.priority_policy import ImpactLevel, UrgencyLevel
+from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, ImpactLevel, UrgencyLevel
 from ..domain.status_policy import LifecycleStatus, Resolution, WaitingReason, validate_status_shape
-from .validation import validate_candidates
+from .validation import priority_quote_matches, validate_candidates
 
 LabelLiteral = Literal["商机", "流失", "排障", "资源需求", "功能需求", "商务需求", "其他"]
 EventTypeLiteral = Literal["商机", "流失", "排障", "资源需求", "功能需求", "商务需求", "其他", "待分类"]
@@ -111,6 +111,11 @@ class StatusProposal(StrictObject):
     quote: str = Field(min_length=1)
 
 
+class PriorityEvidence(StrictObject):
+    evidence_ids: list[str] = Field(min_length=1)
+    quote: str = Field(min_length=1)
+
+
 class PriorityProposal(StrictObject):
     """客观业务影响与时间紧迫度信号提案；客户等级加权由后端独立计算。"""
 
@@ -119,6 +124,13 @@ class PriorityProposal(StrictObject):
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
     quote: str = Field(min_length=1)
+
+
+class EvidencePriorityProposal(PriorityProposal):
+    impact_evidence: PriorityEvidence | None = None
+    urgency_evidence: PriorityEvidence | None = None
+    escalated_emotion: PriorityEvidence | None = None
+    strong_followup: PriorityEvidence | None = None
 
 
 class ExtractedCandidate(StrictObject):
@@ -150,6 +162,14 @@ class ExtractionOutput(StrictObject):
 
     schema_version: Literal["1.0"]
     candidates: list[ExtractedCandidate]
+
+
+class EvidenceExtractedCandidate(ExtractedCandidate):
+    priority_proposal: EvidencePriorityProposal | None = None
+
+
+class EvidenceExtractionOutput(ExtractionOutput):
+    candidates: list[EvidenceExtractedCandidate]
 
 
 def strict_schema(schema: dict) -> dict:
@@ -214,7 +234,7 @@ def parse_output(
             if item.other_reason is None and not (old_event_for_other and old_event_for_other.other_reason):
                 raise ContractError("其他事项必须说明排除六类的直接理由")
 
-        explicit = output_model is not ExtractionOutput
+        explicit = not issubclass(output_model, ExtractionOutput)
         if require_type_labels and item.type != PENDING_TYPE and not item.type_labels:
             raise ContractError("正式输出必须为每个采用类型提供逐项证据")
 
@@ -252,6 +272,10 @@ def parse_output(
             quote_only_items.append(("status_proposal", item.status_proposal))
         if item.priority_proposal is not None:
             quote_only_items.append(("priority_proposal", item.priority_proposal))
+            for field in PRIORITY_EVIDENCE_FIELDS:
+                fact = getattr(item.priority_proposal, field, None)
+                if fact is not None:
+                    quote_only_items.append((f"priority_proposal.{field}", fact))
 
         errors = []
         if item.other_reason is not None and not item.other_reason.value.strip():
@@ -286,8 +310,10 @@ def parse_output(
             if not refs or not refs.issubset(allowed_scope):
                 errors.append(f"candidates[{candidate_index}].{path}：提案证据必须是候选证据的无重复子集")
                 continue
-            quoted = [messages[key] for key in refs if proposal.quote.strip() and proposal.quote in messages[key].content]
-            if not quoted:
+            quoted_messages = [messages[key] for key in refs]
+            valid_quote = (priority_quote_matches(proposal.quote, quoted_messages) if path.startswith("priority_proposal")
+                           else bool(proposal.quote.strip() and any(proposal.quote in msg.content for msg in quoted_messages)))
+            if not valid_quote:
                 errors.append(f"candidates[{candidate_index}].{path}：提案引文无法在所引用消息中核对")
 
         if item.status_proposal is not None:
@@ -305,6 +331,10 @@ def parse_output(
                 if len(set(item.status_proposal.completed_labels)) != len(item.status_proposal.completed_labels):
                     errors.append(f"candidates[{candidate_index}].status_proposal.completed_labels：已完成标签不得重复")
 
+        if isinstance(item.priority_proposal, EvidencePriorityProposal):
+            for axis in ("impact", "urgency"):
+                if getattr(item.priority_proposal, axis) != "unknown" and not getattr(item.priority_proposal, f"{axis}_evidence"):
+                    errors.append(f"candidates[{candidate_index}].priority_proposal.{axis}：已知维度必须有独立证据")
         if item.priority_proposal is not None and not item.priority_proposal.reason.strip():
             errors.append(f"candidates[{candidate_index}].priority_proposal：优先级理由不能为空白")
 
@@ -382,7 +412,7 @@ def parse_output(
             removed_types=removed_types,
             typed_attributes=typed_attributes,
             status_proposal=item.status_proposal.model_dump() if item.status_proposal else None,
-            priority_proposal=item.priority_proposal.model_dump() if item.priority_proposal else None,
+            priority_proposal=item.priority_proposal.model_dump(exclude_none=True) if item.priority_proposal else None,
         )
         candidates.append(candidate)
     try:

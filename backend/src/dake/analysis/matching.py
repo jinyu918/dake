@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 from ..domain.models import Candidate
+from ..domain.priority_policy import merge_priority_proposals
 from .validation import candidate_times
 
 
@@ -54,7 +55,7 @@ def merge_batch(candidates: list[Candidate], available: dict, match_window, new_
             if item.removed_types and item.types is not None:
                 item.types = [label for label in item.types if label not in item.removed_types]
             item.status_proposal = item.status_proposal or old.status_proposal
-            item.priority_proposal = item.priority_proposal or old.priority_proposal
+            item.priority_proposal = merge_priority_proposals(old.priority_proposal, item.priority_proposal)
             item.other_reason = item.other_reason or old.other_reason
             item.referenced_event_id = item.referenced_event_id or old.referenced_event_id
             item.ambiguous = item.ambiguous or old.ambiguous

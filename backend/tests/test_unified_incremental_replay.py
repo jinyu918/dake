@@ -231,7 +231,7 @@ def test_support_fix_reopens_same_event_then_customer_recovery_allows_recurrence
             {"uid": UID, "source": "official_chat", "sender_id": "sup-li", "role": "support"},
         ],
     )
-    m1 = msg("s1", "2026-11-10 10:00:00", "合成工单 INC-901 直播拉流出现全量 502 报错，线上业务中断。", sender_id="cust-zhang")
+    m1 = msg("s1", "2026-11-10 10:00:00", "合成工单 INC-901 直播拉流出现全量 502 报错，线上业务中断且无绕行。", sender_id="cust-zhang")
     m2 = msg("s2", "2026-11-10 10:20:00", "合成工单 INC-901 支撑已完成边缘节点回滚，请客户验证是否恢复。", sender_id="sup-li")
     m3 = msg("s3", "2026-11-10 10:35:00", "合成工单 INC-901 客户反馈华东节点仍然出现 502 报错，未恢复。", sender_id="cust-zhang")
     m4 = msg("s4", "2026-11-10 10:50:00", "合成工单 INC-901 客户确认拉流已完全恢复正常。", sender_id="cust-zhang")
@@ -268,6 +268,7 @@ def test_support_fix_reopens_same_event_then_customer_recovery_allows_recurrence
             "evidence_ids": [m1.key],
             "quote": "线上业务中断",
             "note": "线上核心拉流中断",
+            "impact_evidence": {"evidence_ids": [m1.key], "quote": "全量 502 报错，线上业务中断且无绕行"},
         },
     )
     event_id = service.run_window(UID, win("2026-11-10 10:00:00")).created[0]

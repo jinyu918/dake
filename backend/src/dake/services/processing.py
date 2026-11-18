@@ -6,7 +6,7 @@ from dataclasses import asdict
 from ..analysis.matching import match, merge_batch
 from ..analysis.providers import Provider
 from ..analysis.updates import apply_candidate, snapshot_as_of
-from ..analysis.validation import validate_candidates
+from ..analysis.validation import validate_candidates, validate_priority_evidence
 from ..config import REVIEW, Settings
 from ..domain.models import CycleResult, Window, message_order, parse_time
 from ..repositories.local_state import LocalState
@@ -123,6 +123,7 @@ class IncrementalService:
                         message_keys=[message.key], policy_version=FILTER_VERSION, identity_config_hash=fingerprint))
                 blocked = set()
                 customer_profile = _load_customer_profile(self.store, uid)
+                customer_keys = {m.key for m in eligible if confirmed_sender_role(m.to_dict(), roles) == "customer"}
                 explicit = any(candidate.decision is not None for candidate in candidates)
                 if explicit:
                     if any(candidate.decision is None for candidate in candidates):
@@ -130,9 +131,13 @@ class IncrementalService:
                     events = apply_attributions(candidates, store=self.store, events=events,
                         visible_events=history.events, available=available, pending=pending, eligible=eligible,
                         background=background, result=result, settings=self.settings, observe=observe,
-                        customer_keys={m.key for m in eligible if confirmed_sender_role(m.to_dict(), roles) == "customer"},
+                        customer_keys=customer_keys,
                         customer_profile=customer_profile, sender_roles=roles,
                         recorder=recorder)
+                if not explicit:
+                    for candidate in candidates:
+                        validate_priority_evidence(candidate, available, uid=uid, human_keys=eligible_keys,
+                                                   customer_keys=customer_keys)
                 # 未声明归属的可替换 Provider 使用主题匹配，正式 XHub 统一返回明确归属。
                 for candidate in merge_batch([] if explicit else candidates, available, self.settings.match_window, pending_keys,
                                              self.settings.closed_statuses,

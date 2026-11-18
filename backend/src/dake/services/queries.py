@@ -8,7 +8,7 @@ from ..analysis.providers.xhub import configured_stream
 from ..domain.customer_policy import customer_segment, is_super_large
 from ..domain.manual_controls import is_locked
 from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE, message_order, parse_time
-from ..domain.priority_policy import PRIORITIES, apply_customer_tier, event_priority_sort_key
+from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION, PRIORITIES, apply_customer_tier, event_priority_sort_key
 from ..domain.status_policy import LIFECYCLE_STATUSES, RESOLUTIONS, WAITING_REASONS
 from ..ingestion.client import validate_uid
 from ..repositories.mysql import MySQLStore, StorageError
@@ -179,7 +179,8 @@ class QueryService:
                     profile = None
             items = []
             for event in events:
-                if profile is not None and event.base_priority != "待评估" and not is_locked(event, "priority"):
+                saved_policy = (event.priority_detail or {}).get("rule_version") == ITEM_PRIORITY_RULE_VERSION
+                if profile is not None and not saved_policy and event.base_priority != "待评估" and not is_locked(event, "priority"):
                     tiered = apply_customer_tier(
                         event.base_priority,
                         profile.get("level"),

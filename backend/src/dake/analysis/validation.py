@@ -3,7 +3,7 @@
 from datetime import datetime
 
 from ..domain.models import Candidate, EVENT_LABELS, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Message
-from ..domain.priority_policy import IMPACT_LEVELS, URGENCY_LEVELS
+from ..domain.priority_policy import IMPACT_LEVELS, PRIORITY_EVIDENCE_FIELDS, URGENCY_LEVELS
 from ..domain.status_policy import validate_status_shape
 
 
@@ -130,15 +130,36 @@ def validate_candidates(candidates, new_messages, context) -> dict[str, Message]
                 raise ValueError("优先级提案信号不在允许档位中")
             refs = pp.get("evidence_ids", [])
             quote = pp.get("quote")
-            if (
-                not refs
-                or any(ref not in available for ref in refs)
-                or not isinstance(quote, str)
-                or not quote.strip()
-                or not any(quote in available[ref].content for ref in refs)
-            ):
-                raise ValueError("优先级提案引文必须能在输入消息中核对")
+            if any(ref not in available for ref in refs) or not priority_quote_matches(quote, [available[ref] for ref in refs]):
+                raise ValueError("优先级提案引文必须能在每条所引用消息中核对")
     return available
+
+
+def priority_quote_matches(quote: str, messages: list[Message]) -> bool:
+    return bool(isinstance(quote, str) and quote.strip() and messages
+                and all(quote in message.content for message in messages))
+
+
+def validate_priority_evidence(candidate, available, *, uid, human_keys, customer_keys):
+    proposal = candidate.priority_proposal or {}
+    candidate_keys = {available[key].key for key in candidate.evidence_ids}
+    for field in ("priority_proposal", *PRIORITY_EVIDENCE_FIELDS):
+        fact = (proposal or None) if field == "priority_proposal" else proposal.get(field)
+        if fact is None:
+            continue
+        is_response = field in PRIORITY_EVIDENCE_FIELDS[2:]
+        allowed_keys = candidate_keys & human_keys
+        if is_response:
+            allowed_keys &= customer_keys
+        quote = fact.get("quote")
+        refs = fact.get("evidence_ids", [])
+        if any(key not in available or available[key].key not in allowed_keys or available[key].uid != uid for key in refs
+               ) or not priority_quote_matches(quote, [available[key] for key in refs]):
+            raise ValueError("优先级维度证据必须是当前事项的同客户本轮原文，情绪和催办须由已确认客户本人发出")
+        if is_response:
+            text = "".join(char for char in quote if char.isalnum())
+            if not text or text in {"尽快", "请尽快", "麻烦尽快", "请尽快处理", "麻烦尽快处理"}:
+                raise ValueError("单句普通催促或表情不能用作情绪升级或强催办证据")
 
 
 def candidate_times(candidate: Candidate, available: dict[str, Message],

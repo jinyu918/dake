@@ -8,7 +8,7 @@ from pydantic import Field
 
 from ..domain.models import parse_time
 from .continuity import CONTINUITY_POLICY, ContinuityFact, normalize_uncertain_reference, recovery_is_safe, validate_continuity
-from .contract import ContractError, ExtractedCandidate, StrictObject, parse_output, strict_schema
+from .contract import ContractError, EvidencePriorityProposal, ExtractedCandidate, StrictObject, parse_output, strict_schema
 from .quote_alignment import align_quotes
 from .summary_changes import SUMMARY_POLICY, SummaryChange, complete_field_changes, validate_changes
 from .validation import evidence_map
@@ -67,6 +67,14 @@ class AttributionOutput(StrictObject):
 
     schema_version: Literal["4.0"]
     candidates: list[AttributedCandidate]
+
+
+class EvidenceAttributedCandidate(AttributedCandidate):
+    priority_proposal: EvidencePriorityProposal | None = None
+
+
+class EvidenceAttributionOutput(AttributionOutput):
+    candidates: list[EvidenceAttributedCandidate]
 
 
 def attribution_version() -> str:
@@ -343,6 +351,7 @@ def parse_attribution_output(
     normalizations=None,
     history_items=(),
     require_type_labels: bool = False,
+    output_model=AttributionOutput,
 ):
     """沿用字段及来源校验；关联依据在业务入口按当前窗口再次核对。"""
     content = align_quotes(content, [*context, *new_messages])
@@ -356,12 +365,12 @@ def parse_attribution_output(
             new_messages,
             context,
             existing_events,
-            output_model=AttributionOutput,
+            output_model=output_model,
             require_type_labels=require_type_labels,
         )
     except ContractError as error:
         try:
-            output = AttributionOutput.model_validate_json(content)
+            output = output_model.model_validate_json(content)
         except ValueError:
             raise error
         errors = [str(error)]

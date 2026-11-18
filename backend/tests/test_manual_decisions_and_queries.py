@@ -573,3 +573,23 @@ def test_mysql_persistence_roundtrip_manual_lock_and_review_flag_cap(tmp_path):
             next(gen)
         except StopIteration:
             pass
+
+
+def test_saved_emotion_priority_survives_listing_filter_and_detail(tmp_path):
+    store = MemoryStore()
+    store._execute = lambda *_args, **_kwargs: ([], 0)
+    store.profiles[UID] = dict(level="L3", level_state="fresh")
+    settings = replace(Settings(), data_dir=tmp_path, uid=UID, provider="stub")
+    start = parse_time("2026-11-10 09:00:00")
+    event = Event(event_id="synthetic-emotion-p1", uid=UID, stream="stub-v1", type="排障", topic_key="synthetic",
+                  start_time=start, end_time=start, created_on=start, summary="合成局部降级及情绪升级",
+                  status="跟进中", severity="P1", priority="P1", base_priority="P2",
+                  priority_detail=dict(rule_version="item-priority-v1", priority="P1", pre_timer_priority="P1",
+                                       customer_priority="P2", customer_level="L3", level_state="fresh"))
+    with store.transaction(UID):
+        store.save_event(event)
+    queries = QueryService(settings, store_factory=BoundStoreFactory(store))
+    assert queries.events(UID, "stub-v1")["items"][0]["priority"] == "P1"
+    assert queries.events(UID, "stub-v1", priority="P2")["items"] == []
+    item, = queries.events(UID, "stub-v1", priority="P1")["items"]
+    assert item == queries.event(event.event_id, UID, "stub-v1")
