@@ -503,6 +503,23 @@ class MySQLStore:
         )
         return [Event.from_dict(_decoded(row["snapshot"])) for row in rows if row["snapshot"]]
 
+    def save_alert_delivery(self, delivery, reminder_minutes=None):
+        from ..domain.alert_policy import append_alert_delivery
+
+        self._require_transaction(delivery["uid"])
+        _, inserted = self._execute("INSERT IGNORE INTO alert_preview_deliveries (source,message_id) VALUES (%s,%s)",
+                                    (delivery["source"], delivery["message_id"]))
+        if not inserted:
+            return
+        key = tuple(delivery[name] for name in ("source", "alert_id", "round_id"))
+        self._execute("INSERT IGNORE INTO alert_preview_rounds (source,alert_id,round_id,payload) VALUES (%s,%s,%s,%s)",
+                      (*key, "{}"))
+        rows, _ = self._execute("SELECT payload FROM alert_preview_rounds WHERE source=%s AND alert_id=%s AND round_id=%s FOR UPDATE", key)
+        current = _decoded(rows[0]["payload"])
+        updated = append_alert_delivery(current, delivery, self.customer_profile, reminder_minutes)
+        self._execute("UPDATE alert_preview_rounds SET payload=%s WHERE source=%s AND alert_id=%s AND round_id=%s",
+                      (_json(updated), *key))
+
     def due_priority_events(self, now, limit):
         rows, _ = self._execute(
             """SELECT uid,stream,event_id,CAST(JSON_EXTRACT(payload,'$.version') AS UNSIGNED) AS version

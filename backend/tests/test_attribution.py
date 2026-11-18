@@ -577,3 +577,27 @@ def test_confirmed_impact_requires_literal_uid_and_a_separate_impact_quote():
     fact["quote"] = item.priority_proposal["quote"] = msg.content
     with pytest.raises(ValueError, match="影响原文"):
         validate_priority_evidence(item, {msg.key: msg}, uid=UID, human_keys={msg.key}, customer_keys=set())
+
+
+def test_alert_only_window_saves_before_processing_marker(tmp_path, monkeypatch):
+    from dake.domain.alert_policy import ALERT_SCHEMA
+
+    probe = message("alert-delivery", 1, sender_id="fixture-bot")
+    payload = dict(schema=ALERT_SCHEMA, source="local-fixture", alert_id="storage-rule", round_id="a",
+                   kind="trigger", severity="warning", affected_uid=UID)
+    msg = replace(probe, content=json.dumps(payload))
+    service, store, provider, source = build(tmp_path, [msg])
+    service.settings = replace(service.settings, synthetic_alert_source="local-fixture")
+    monkeypatch.setattr("dake.services.processing.sender_kind", lambda *_: "bot")
+    deliveries = []
+
+    def save_alert(item, minutes):
+        assert (msg.key, service.stream) not in store.processed
+        deliveries.append(item)
+
+    store.save_alert_delivery = save_alert
+    result = service.run_window(UID, window(1))
+    assert result.processed == 1 and not result.created
+    assert deliveries[0]["round_id"] == "a"
+    assert service.run_window(UID, window(1)).processed == 0
+    assert len(deliveries) == 1

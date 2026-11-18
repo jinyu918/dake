@@ -5,6 +5,7 @@ from dataclasses import asdict
 
 from ..analysis.matching import match, merge_batch
 from ..analysis.providers import Provider
+from ..domain.alert_policy import parse_synthetic_alert
 from ..analysis.updates import apply_candidate, snapshot_as_of
 from ..analysis.validation import validate_candidates, validate_priority_evidence
 from ..config import REVIEW, Settings
@@ -126,6 +127,10 @@ class IncrementalService:
                 candidates = accepted
                 pending_keys = eligible_keys
                 for message in bot_pending:
+                    if self.settings.synthetic_alert_source:
+                        delivery = parse_synthetic_alert(message, self.settings.synthetic_alert_source)
+                        if delivery is not None:
+                            self.store.save_alert_delivery(delivery, self.settings.alert_reminder_minutes)
                     result.filter_audit.append(dict(
                         reason="confirmed_bot_auxiliary_only" if eligible else "confirmed_bot_without_new_discussion",
                         message_keys=[message.key], policy_version=FILTER_VERSION, identity_config_hash=fingerprint))

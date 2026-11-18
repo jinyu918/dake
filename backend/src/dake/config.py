@@ -103,6 +103,8 @@ class Settings:
     provider: str = "stub"
     priority_preview: bool = False
     priority_calendar: ServiceCalendar | None = None
+    synthetic_alert_source: str | None = None
+    alert_reminder_minutes: int | None = None
     llm_model: str = "gpt-6.1-sol"
     llm_max_tokens: int = 8192
     llm_timeout_seconds: int = 120
@@ -152,6 +154,8 @@ class Settings:
             }),
             provider=get("LLM_PROVIDER", "stub"),
             priority_calendar=ServiceCalendar.load(path) if (path := values.get("PRIORITY_SERVICE_CALENDAR")) else None,
+            synthetic_alert_source=values.get("SYNTHETIC_ALERT_SOURCE") or None,
+            alert_reminder_minutes=int(minutes) if (minutes := values.get("SYNTHETIC_ALERT_REMINDER_MINUTES")) else None,
             llm_model=get("XHub_MODEL", "gpt-6.1-sol"),
             llm_max_tokens=int(get("XHub_MAX_TOKENS", "8192")),
             llm_timeout_seconds=int(get("XHub_TIMEOUT_SECONDS", "120")),
@@ -180,6 +184,10 @@ class Settings:
             raise ValueError("DATA_DIR 必须位于本项目 data/ 目录下")
         if self.provider not in {"stub", "xhub"}:
             raise ValueError("LLM_PROVIDER 仅支持 stub 或 xhub")
+        if self.synthetic_alert_source and not re.fullmatch(r"[A-Za-z0-9._-]{1,96}", self.synthetic_alert_source):
+            raise ValueError("合成告警来源标识无效")
+        if self.alert_reminder_minutes is not None and self.alert_reminder_minutes <= 0:
+            raise ValueError("告警提醒间隔须大于零")
         if not self.llm_model or not 1 <= self.llm_max_tokens <= 8192 or not 1 <= self.llm_timeout_seconds <= 300:
             raise ValueError("模型名称、输出上限或超时配置无效")
         if self.analysis_slots < 1 or not 0 <= self.live_reserved <= self.analysis_slots or self.fetch_ahead < 1:

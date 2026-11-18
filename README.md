@@ -299,3 +299,5 @@ Linux / WSL 可用用户服务保持本地后端运行：先执行 `.venv/bin/py
 `python -m dake.cli preview-priority --uid <UID> --start <起点> --end <终点>` 显式使用已入库且在既有授权范围内的聊天。配置 `LLM_PROVIDER=xhub` 后，模型评估和处理标记使用独立预览流。终端显示该流及批次计数。
 
 计时预览前在本项目的隔离 MySQL 库执行 `backend/migrations/006_item_priority_deadline.sql` 一次。迁移给事件增加可空到期索引，存量事件保持空值。预览可加 `--calendar <本地日历文件>`。例如 `{"weekdays":[0,1,2,3,4],"opens":"09:00","closes":"17:00","holidays":[]}` 是合成日历，星期一为 0，时段使用上海时间。`python -m dake.cli check-priority-deadlines --calendar <本地日历文件>` 扫描一批到期事项。后台服务显式设置 `PRIORITY_SERVICE_CALENDAR` 后，协调线程也会扫描已投影的到期事项。
+
+合成告警验收先在隔离库执行 `backend/migrations/007_alert_preview.sql`。显式设置 `SYNTHETIC_ALERT_SOURCE`，并使用现有机器人身份配置识别测试发送者。合成消息声明 `schema=dake.synthetic-alert-v1`，提供匹配配置的 `source`、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）、`severity` 和明确受影响时的 `affected_uid`。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复提醒预览间隔。提醒预览与轮次同事务保存。
