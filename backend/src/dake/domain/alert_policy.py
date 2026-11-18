@@ -22,7 +22,7 @@ def parse_synthetic_alert(message, source):
     for key in ("alert_id", "round_id"):
         if not isinstance(value.get(key), str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value[key]):
             return None
-    if value.get("kind") not in {"trigger", "recovery"}:
+    if value.get("kind") not in ("trigger", "recovery"):
         return None
     severity = value.get("severity")
     if not isinstance(severity, str) or len(severity) > 32:
@@ -71,7 +71,14 @@ def append_alert_delivery(current, delivery, profile_reader, reminder_minutes=No
     ranks = {"P1": 0, "P2": 1, "P3": 2, "待核实": 3}
     escalated = old_priority in ranks and ranks[priority] < ranks[old_priority]
     repeated = reminder_minutes and previews and occurred >= parse_time(previews[-1]["at"]) + timedelta(minutes=reminder_minutes)
-    if delivery["kind"] == "trigger" and result["state"] == "告警中" and (old_state != "告警中" or escalated or repeated):
+    if delivery["kind"] == "trigger" and result["state"] == "已恢复":
+        historical_first = not previews or (
+            previews[0]["kind"] == "历史首次触发" and occurred < parse_time(previews[0]["at"])
+        )
+        if historical_first:
+            previews[:1] = [dict(message_id=delivery["message_id"], at=delivery["occurred_at"], priority=priority,
+                                 route=ROUTES[priority], kind="历史首次触发")]
+    elif delivery["kind"] == "trigger" and result["state"] == "告警中" and (old_state != "告警中" or escalated or repeated):
         previews.append(dict(message_id=delivery["message_id"], at=delivery["occurred_at"], priority=priority,
                              route=ROUTES[priority], kind="档位提升" if escalated else "重复提醒" if repeated else "首次触发"))
     return result

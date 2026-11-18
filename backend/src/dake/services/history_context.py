@@ -42,7 +42,7 @@ class HistoryContextService:
     def __init__(self, store, limits):
         self.store, self.limits = store, limits
 
-    def retrieve(self, history, new_messages, context, events, kinds):
+    def retrieve(self, history, new_messages, context, events, kinds, *, exclude_message=None):
         """沿用客户事务的输入视图；只读 SQL，不联网、不读取原始缓存或水位。"""
         uid, stream, before = history.uid, history.stream, history.before
         if (not uid or not stream or before.tzinfo is None
@@ -90,6 +90,8 @@ class HistoryContextService:
         anchors, needs = {}, set()
         for identity, (ref, links) in requests.items():
             message = supplied.get(identity) or loaded.get(identity)
+            if exclude_message and (message is None or exclude_message(message)):
+                continue
             item = self._item(ref, links, message, kinds)
             if identity in supplied:
                 item.update(availability="already_in_input", fragments=[], truncated=False,
@@ -157,6 +159,8 @@ class HistoryContextService:
             message = (supplied.get(identity) or neighbors.get(identity)) if identity in safe else None
             if message is not None and message.conversation_id != group:
                 raise ValueError("邻近消息正文不属于锚点所在群")
+            if exclude_message and (message is None or exclude_message(message)):
+                continue
             item = self._item(ref, links, message, kinds)
             if message is None:
                 item.update(conversation_id=group, availability="historical_version_unavailable")

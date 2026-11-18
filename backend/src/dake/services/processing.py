@@ -101,9 +101,14 @@ class IncrementalService:
         bot_pending = [m for m in pending if sender_kind(m.to_dict(), kinds) == "bot"]
         bot_keys = {m.key for m in bot_pending}
         eligible = [m for m in pending if m.key not in bot_keys]
-        auxiliary = context + bot_pending
+        alert_source = self.settings.synthetic_alert_source
+        alert_deliveries = {m.key: delivery for m in bot_pending
+                            if alert_source and (delivery := parse_synthetic_alert(m, alert_source))}
+        evidence_pending = [m for m in pending if m.key not in alert_deliveries]
+        context = [m for m in context if not self._is_structured_alert(m, kinds)]
+        auxiliary = context + [m for m in bot_pending if m.key not in alert_deliveries]
         candidates, history, background = self._extract_outside(uid, window, result, recorder, observer, observe,
-            pending, eligible, auxiliary, events, kinds, roles)
+            pending, eligible, auxiliary, events, kinds, roles, evidence_pending=evidence_pending)
         withheld = isolated
         with self.store.transaction(uid):
             writable = getattr(self.store, "store", self.store)
@@ -114,7 +119,7 @@ class IncrementalService:
                 self._require_same_input(uid, window, pending, withheld, events)
                 if withheld and getattr(self, "gate", None) is not None:
                     self.gate.isolate(self.store, withheld, window)
-                available = validate_candidates(candidates, pending, context)
+                available = validate_candidates(candidates, evidence_pending, context)
                 eligible_keys = {m.key for m in eligible}
                 accepted = []
                 for candidate in candidates:
@@ -127,10 +132,8 @@ class IncrementalService:
                 candidates = accepted
                 pending_keys = eligible_keys
                 for message in bot_pending:
-                    if self.settings.synthetic_alert_source:
-                        delivery = parse_synthetic_alert(message, self.settings.synthetic_alert_source)
-                        if delivery is not None:
-                            self.store.save_alert_delivery(delivery, self.settings.alert_reminder_minutes)
+                    if delivery := alert_deliveries.get(message.key):
+                        self.store.save_alert_delivery(delivery, self.settings.alert_reminder_minutes)
                     result.filter_audit.append(dict(
                         reason="confirmed_bot_auxiliary_only" if eligible else "confirmed_bot_without_new_discussion",
                         message_keys=[message.key], policy_version=FILTER_VERSION, identity_config_hash=fingerprint))
@@ -281,7 +284,11 @@ class IncrementalService:
         ordered = [message for message in sorted(context.values(), key=message_order) if message.key not in pending_keys]
         return pending_list, ordered, events, isolated
 
-    def _extract_outside(self, uid, window, result, recorder, observer, observe, pending, eligible, auxiliary, events, kinds, roles):
+    def _is_structured_alert(self, message, kinds):
+        source = self.settings.synthetic_alert_source
+        return bool(source and sender_kind(message.to_dict(), kinds) == "bot" and parse_synthetic_alert(message, source))
+
+    def _extract_outside(self, uid, window, result, recorder, observer, observe, pending, eligible, auxiliary, events, kinds, roles, *, evidence_pending):
         """调用模型前不持有业务事务。"""
         context = [message for message in auxiliary if message not in pending]
         if recorder is not None:
@@ -307,7 +314,11 @@ class IncrementalService:
                 configure_history(history)
             configure_context = getattr(self.provider, "configure_history_context", None)
             if configure_context is not None:
-                background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds)
+                if self.settings.synthetic_alert_source:
+                    background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds,
+                        exclude_message=lambda message: self._is_structured_alert(message, kinds))
+                else:
+                    background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds)
                 configure_context(background)
             if recorder is not None:
                 recorder.record("history_context", "completed" if background is not None else "skipped",
@@ -319,7 +330,7 @@ class IncrementalService:
             configure_validator = getattr(self.provider, "configure_candidate_validator", None)
             if configure_validator is not None:
                 def validate_proposals(proposals):
-                    available = validate_candidates(proposals, pending, context)
+                    available = validate_candidates(proposals, evidence_pending, context)
                     human_keys = {m.key for m in eligible}
                     accepted = [c for c in proposals if human_keys.intersection(c.evidence_ids)]
                     preflight_attributions(accepted, events=events, visible_events=history.events,

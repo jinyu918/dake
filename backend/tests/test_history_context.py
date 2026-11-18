@@ -10,9 +10,11 @@ from uuid import UUID
 import httpx
 import pytest
 
+from dake.analysis.attribution import AttributionOutput
 from dake.analysis.contract import ContractError, parse_output
 from dake.analysis.providers.xhub import XHubConfig, XHubError, XHubProvider
 from dake.config import HistoryContextSettings, HistoryRetrievalSettings, Settings
+from dake.domain.alert_policy import ALERT_SCHEMA
 from dake.domain.models import Candidate, Event, Message, Window, parse_time
 from dake.jobs.runner import prepare_request
 from dake.repositories.mysql import MySQLStore
@@ -339,6 +341,7 @@ def pure_provider(settings):
     """只构造输入，不创建 HTTP 客户端，不读取密钥。"""
     provider = object.__new__(XHubProvider)
     provider.settings, provider.name = replace(settings, provider="xhub"), STREAM
+    provider.attribution_model = AttributionOutput
     provider.sender_kinds, provider.history_retrieval, provider.history_context = {}, None, None
     return provider
 
@@ -416,6 +419,68 @@ def test_formal_provider_receives_background_through_shared_service_with_mock_ht
         assert result.processed == 1 and result.created == result.updated == []
         assert store.events[old_event.event_id] == old_event
         assert (old.key, provider.name) not in store.processed
+    finally:
+        provider.close()
+
+
+@pytest.mark.parametrize("cite_alert", [False, True])
+def test_mixed_window_structured_alerts_stay_out_of_xhub(tmp_path, monkeypatch, cite_alert):
+    settings = Settings(uid=UID, data_dir=tmp_path, provider="xhub", synthetic_alert_source="local-fixture",
+                        start=window(1).start, end=window(11).end)
+    old = message(content="虚构上传失败，这个需要排查")
+    new = message("new", 10, "虚构上传仍然失败")
+
+    def alert(mid, sent_at, kind):
+        return message(mid, content=json.dumps(dict(schema=ALERT_SCHEMA, source="local-fixture", alert_id=mid,
+                       round_id="fixture", kind=kind, severity="warning")),
+                       sender_id="synthetic-bot", sent_at=sent_at)
+
+    cited = alert("old-cited-alert", old.sent_at + timedelta(minutes=1), "trigger")
+    neighbor = alert("old-neighbor-alert", old.sent_at + timedelta(minutes=2), "recovery")
+    previous = alert("recent-recovery", new.sent_at - timedelta(days=1), "recovery")
+    incoming = alert("mixed-recovery", new.sent_at, "recovery")
+    calls = []
+
+    def respond(req):
+        body = json.loads(req.content)
+        calls.append(json.loads(body["messages"][1]["content"]))
+        from test_attribution import model_output
+
+        output = model_output(new, decision="update", referenced_event_id=original.event_id,
+                              basis=[dict(message_id=incoming.key, quote=incoming.content)],
+                              evidence_ids=[new.key, incoming.key]) if cite_alert else json.dumps(
+                                  dict(schema_version="4.0", candidates=[]))
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": output}}]})
+
+    provider = XHubProvider(XHubConfig(model="synthetic-model", api_key="synthetic-placeholder"), settings,
+                            transport=httpx.MockTransport(respond))
+    original = event(messages=[old, cited], stream=provider.name)
+    proof = event(2, [neighbor], stream=provider.name, topic_key="独立事项", summary="另一件事项")
+    store = MemoryStore()
+    delivered = []
+    monkeypatch.setattr(store, "save_alert_delivery", lambda delivery, _: delivered.append(delivery), raising=False)
+    monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
+        (UID, incoming.source, incoming.sender_id, incoming.conversation_id): "bot"})
+    store.messages.update({m.key: m for m in (old, cited, neighbor, previous)})
+    for m in (old, cited, neighbor, previous):
+        store.processed[(m.key, provider.name)] = m.digest
+    store.events.update({e.event_id: deepcopy(e) for e in (original, proof)})
+    service = IncrementalService(store, FakeSource([new, incoming]), provider, settings)
+    try:
+        if cite_alert:
+            with pytest.raises(XHubError, match="证据|引文|引用"):
+                service.run_window(UID, window(10))
+            assert not delivered
+        else:
+            result = service.run_window(UID, window(10))
+            assert result.processed == 2 and result.updated == []
+            assert [d["message_id"] for d in delivered] == [incoming.key]
+        payload = calls[0]
+        assert [m["id"] for m in payload["new_messages"]] == [new.key]
+        assert payload["context_messages"] == []
+        assert [m["id"] for m in payload["history_context"]["items"]] == [old.key]
+        assert ALERT_SCHEMA not in json.dumps(payload)
+        assert store.events[original.event_id] == original
     finally:
         provider.close()
 

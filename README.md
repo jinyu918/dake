@@ -300,4 +300,6 @@ Linux / WSL 可用用户服务保持本地后端运行：先执行 `.venv/bin/py
 
 计时预览前在本项目的隔离 MySQL 库执行 `backend/migrations/006_item_priority_deadline.sql` 一次。迁移给事件增加可空到期索引，存量事件保持空值。预览可加 `--calendar <本地日历文件>`。例如 `{"weekdays":[0,1,2,3,4],"opens":"09:00","closes":"17:00","holidays":[]}` 是合成日历，星期一为 0，时段使用上海时间。`python -m dake.cli check-priority-deadlines --calendar <本地日历文件>` 扫描一批到期事项。后台服务显式设置 `PRIORITY_SERVICE_CALENDAR` 后，协调线程也会扫描已投影的到期事项。
 
-合成告警验收先在隔离库执行 `backend/migrations/007_alert_preview.sql`。显式设置 `SYNTHETIC_ALERT_SOURCE`，并使用现有机器人身份配置识别测试发送者。合成消息声明 `schema=dake.synthetic-alert-v1`，提供匹配配置的 `source`、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）、`severity` 和明确受影响时的 `affected_uid`。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复提醒预览间隔。提醒预览与轮次同事务保存。
+合成告警验收先在隔离库执行 `backend/migrations/007_alert_preview.sql`。启动后端前在 `.env` 设置 `SYNTHETIC_ALERT_SOURCE=local-fixture`，并在机器人筛选中确认该测试客户和群的发送账号为机器人。将合成消息写入隔离库，再从任务中心创建常规任务，选择已同步聊天、测试客户、授权群和对应时间窗。运行前完成配置，确保首次处理窗口使用该来源。未配置来源时，仍按常规机器人通知规则处理。
+
+消息正文为 JSON，必填 `schema`（`dake.synthetic-alert-v1`）、`source`（与配置相同）、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）和 `severity`。当确认受影响客户时，`affected_uid` 须与当前上报客户 UID 一致。同一 `source`、`alert_id`、`round_id` 汇总到一个告警轮次。独立告警使用不同的 `round_id`。已识别的告警与恢复从事项模型的当前输入及旧聊天背景中排除。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复预览间隔。提醒预览与轮次同事务保存，先收到恢复时，补到更早的触发仅生成按事件时间记录的历史首次预览，轮次保持已恢复。此入口只生成预览。

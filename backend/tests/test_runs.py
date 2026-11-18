@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from dake.config import Settings, bound
+from dake.domain.alert_policy import ALERT_SCHEMA
 from dake.domain.models import Candidate, Message
 from dake.jobs.runner import RunRunner, prepare_request
 from dake.repositories.runs import RunConflict, RunRepository
@@ -98,6 +99,36 @@ def execute_next(repository, runner, request, total):
     claimed = repository.claim_next(runner.runner_id)
     runner.execute(claimed)
     return repository.items[submitted["run_id"]]
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_regular_stored_task_respects_alert_opt_in_and_group_scope(tmp_path, monkeypatch, enabled):
+    _, repository, runner, store, _, provider, request, total, seen = run_fixture(tmp_path, days=1)
+    env = tmp_path / "isolated.env"
+    env.write_text("SYNTHETIC_ALERT_SOURCE=local-fixture\nSYNTHETIC_ALERT_REMINDER_MINUTES=5\n" if enabled else "",
+                   encoding="utf-8")
+    monkeypatch.setattr("dake.config.os.environ", {})
+    monkeypatch.setattr(repository, "has_interrupted_range", lambda *_: False, raising=False)
+    loaded = Settings.load(env)
+    runner.settings = replace(runner.settings, synthetic_alert_source=loaded.synthetic_alert_source,
+                              alert_reminder_minutes=loaded.alert_reminder_minutes)
+    request.update(message_source="stored", allowed_groups=["allowed"], strict_window=True)
+    body = json.dumps(dict(schema=ALERT_SCHEMA, source="local-fixture", alert_id="fixture", round_id="one",
+                           kind="trigger", severity="warning", affected_uid=request["uid"]))
+    allowed = Message(request["uid"], "alert-in", bound("2026-11-08T09:00:00"), body,
+                      source="official_chat", conversation_id="allowed", sender_id="fixture-bot")
+    outside = replace(allowed, message_id="alert-out", conversation_id="outside")
+    store.messages.update({m.key: m for m in (allowed, outside)})
+    monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
+        (allowed.uid, allowed.source, allowed.sender_id, m.conversation_id): "bot" for m in (allowed, outside)})
+    saved = []
+    monkeypatch.setattr(store, "save_alert_delivery", lambda d, minutes: saved.append((d["message_id"], minutes)),
+                        raising=False)
+    result = execute_next(repository, runner, request, total)
+    assert result["status"] == "succeeded" and seen[-1].synthetic_alert_source == loaded.synthetic_alert_source
+    assert saved == ([(allowed.key, 5)] if enabled else [])
+    assert (allowed.key, provider.name) in store.processed and (outside.key, provider.name) not in store.processed
+    assert not provider.calls
 
 
 def test_removed_demo_task_never_builds_official_source(tmp_path):

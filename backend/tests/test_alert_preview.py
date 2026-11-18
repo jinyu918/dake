@@ -35,3 +35,20 @@ def test_round_isolation_levels_late_recovery_and_recurrence():
     assert late["state"] == "待匹配恢复" and late["queue"] == "内部兜底"
     late = append_alert_delivery(late, delivery("late2", "unknown", 29, affected=False), profiles.get)
     assert late["state"] == "已恢复" and late["pending"]
+
+
+def test_recovery_first_keeps_earliest_historical_preview_without_reopening():
+    def profile(_):
+        return dict(level="L10", level_state="fresh")
+
+    data = [delivery("recovery", "confirmed", 30, kind="recovery"),
+            delivery("trigger", "confirmed", 10), delivery("repeated", "confirmed", 20),
+            delivery("earlier", "confirmed", 5), delivery("stale-recovery", "confirmed", 1, kind="recovery")]
+    state = append_alert_delivery(None, data[0], profile, 1)
+    assert state["state"] == "待匹配恢复" and state["reminders"] == []
+    for item in data[1:]:
+        state = append_alert_delivery(state, item, profile, 1)
+        assert state["state"] == "已恢复" and state["recovered_at"] == data[0]["occurred_at"]
+    assert state["triggered_at"] == data[3]["occurred_at"]
+    assert state["reminders"] == [dict(message_id=data[3]["message_id"], at=data[3]["occurred_at"],
+                                       priority="P1", route="值班或 TAM", kind="历史首次触发")]
