@@ -503,6 +503,14 @@ class MySQLStore:
         )
         return [Event.from_dict(_decoded(row["snapshot"])) for row in rows if row["snapshot"]]
 
+    def due_priority_events(self, now, limit):
+        rows, _ = self._execute(
+            """SELECT uid,stream,event_id,CAST(JSON_EXTRACT(payload,'$.version') AS UNSIGNED) AS version
+               FROM events WHERE priority_due_at <= %s ORDER BY priority_due_at,event_id LIMIT %s""",
+            (_sql_time(now), limit),
+        )
+        return [(row["uid"], row["stream"], row["event_id"], row["version"]) for row in rows]
+
     def save_event(self, event: Event) -> None:
         """按稳定 event_id 创建或更新事件，保存证据和修订记录，并防止跨客户覆盖。"""
         self._require_transaction(event.uid)
@@ -528,6 +536,11 @@ class MySQLStore:
                    review_flag,payload,event_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 values,
             )
+
+        if clock := (event.priority_detail or {}).get("clock"):
+            due = clock.get("next_check")
+            self._execute("UPDATE events SET priority_due_at=%s WHERE event_id=%s",
+                          (_sql_time(parse_time(due)) if due else None, event.event_id))
 
     def close(self) -> None:
         """释放本实例的数据库连接，可重复调用。"""

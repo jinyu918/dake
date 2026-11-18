@@ -194,7 +194,7 @@ class IncrementalService:
                         return profiles[customer_uid]
 
                     for event in events:
-                        if event.lifecycle_status not in {"已解决", "已取消"} and refresh_item_priority(event, profile_for):
+                        if refresh_item_priority(event, profile_for, self.settings.priority_calendar, window.end):
                             updated = event.event_id in result.updated or event.event_id in result.created
                             save_priority_refresh(self.store, event, window, updated, attempt_id=result.attempt_id)
                             if not updated:

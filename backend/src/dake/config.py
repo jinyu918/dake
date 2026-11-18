@@ -8,6 +8,7 @@ import re
 
 from dotenv import dotenv_values
 
+from .domain.item_clock import ServiceCalendar
 from .domain.models import parse_time
 
 # 配置与真实数据固定锚定仓库根，避免从 backend/ 启动时误建另一份数据目录。
@@ -101,6 +102,7 @@ class Settings:
     history_context: HistoryContextSettings = field(default_factory=HistoryContextSettings)
     provider: str = "stub"
     priority_preview: bool = False
+    priority_calendar: ServiceCalendar | None = None
     llm_model: str = "gpt-6.1-sol"
     llm_max_tokens: int = 8192
     llm_timeout_seconds: int = 120
@@ -149,6 +151,7 @@ class Settings:
                 for name, value in asdict(HistoryContextSettings()).items()
             }),
             provider=get("LLM_PROVIDER", "stub"),
+            priority_calendar=ServiceCalendar.load(path) if (path := values.get("PRIORITY_SERVICE_CALENDAR")) else None,
             llm_model=get("XHub_MODEL", "gpt-6.1-sol"),
             llm_max_tokens=int(get("XHub_MAX_TOKENS", "8192")),
             llm_timeout_seconds=int(get("XHub_TIMEOUT_SECONDS", "120")),

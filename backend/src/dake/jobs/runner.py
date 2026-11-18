@@ -2,7 +2,7 @@
 
 from contextlib import contextmanager
 from dataclasses import asdict, replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 import json
 import math
 import logging
@@ -13,7 +13,7 @@ from ..bootstrap import build_service
 from ..analysis.providers.xhub import XHubError, configured_stream
 from ..analysis.attribution import attribution_version
 from ..config import API_MAX_RANGE_DAYS, API_MAX_WINDOWS, HistoryContextSettings, HistoryRetrievalSettings, bound, duration
-from ..domain.models import parse_time, windows
+from ..domain.models import TZ, parse_time, windows
 from ..ingestion.client import validate_uid
 from ..repositories.local_state import private_json
 from ..repositories.attempts import AttemptError, DeliveryError
@@ -151,6 +151,10 @@ class RunRunner:
                                 self.coordinator.tick()
                             if self.pipeline is not None and self.attempts is not None:
                                 self.pipeline.verify_expired(self.attempts)
+                            if self.settings.priority_calendar is not None:
+                                from ..services.item_priority import check_due_item_priorities
+
+                                check_due_item_priorities(keeper, self.settings.priority_calendar, now=datetime.now(TZ))
                         finally:
                             keeper._execute("SELECT RELEASE_LOCK(%s)", (self.repository.worker_lock,))
                             self._keeper = None

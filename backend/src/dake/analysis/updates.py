@@ -13,6 +13,7 @@ from ..domain.manual_controls import (
     upsert_review_item,
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
+from ..domain.item_clock import TERMINAL, advance_clock
 from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, evaluate_priority_proposal, merge_affected_customers
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
@@ -53,6 +54,8 @@ def bind_candidate_evidence(candidate, available):
         proposal = _bound_fact(proposal, available)
         if proposal.get("affected_customers"):
             proposal["affected_customers"] = [_bound_fact(fact, available) for fact in proposal["affected_customers"]]
+        if proposal.get("clock_evidence"):
+            proposal["clock_evidence"] = [_bound_fact(fact, available) for fact in proposal["clock_evidence"]]
         for field in PRIORITY_EVIDENCE_FIELDS:
             if fact := proposal.get(field):
                 bound = _bound_fact(fact, available)
@@ -479,7 +482,9 @@ def apply_candidate(
             if mapped_status != "状态未明":
                 event.lifecycle_status = mapped_status
 
-    old_impacts = (event.priority_detail or {}).get("affected_customers", [])
+    old_detail = event.priority_detail or {}
+    old_clock = old_detail.get("clock")
+    old_impacts = old_detail.get("affected_customers", [])
     new_impacts = (candidate.priority_proposal or {}).get("affected_customers", [])
     # 5. 业务优先级确定性评估（Impact × Urgency + L9/L10 提档封顶）与人工锁保护
     if candidate.priority_proposal is not None or (not old_impacts and customer_profile is not None and event.base_priority != "待评估"):
@@ -532,6 +537,16 @@ def apply_candidate(
                 event.closed_at = end
         else:
             event.closed_at = None
+
+    if (settings.priority_preview and settings.priority_calendar is not None) or old_clock:
+        clock_facts = (candidate.priority_proposal or {}).get("clock_evidence", [])
+        timed_facts = sorted(((max(available[key].sent_at for key in fact["evidence_ids"]), fact)
+                              for fact in clock_facts), key=lambda pair: pair[0])
+        reopened = previous is not None and previous.get("lifecycle_status") in TERMINAL and event.lifecycle_status not in TERMINAL
+        if old_clock or created or reopened:
+            clock = advance_clock(old_clock, start=new_end if reopened else start, reopened=reopened,
+                                  terminal=event.lifecycle_status in TERMINAL, actions=timed_facts)
+            event.priority_detail = dict(event.priority_detail or {}, clock=clock)
 
     if old_impacts or new_impacts:
         event.priority_detail = dict(event.priority_detail or {},

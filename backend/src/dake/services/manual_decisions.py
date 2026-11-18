@@ -8,6 +8,7 @@ import json
 
 from ..analysis.providers.xhub import configured_stream
 from .item_priority import refresh_item_priority
+from ..domain.item_clock import TERMINAL, advance_clock
 from ..domain.manual_controls import (
     ManualDecisionRequest,
     ManualFieldAction,
@@ -16,7 +17,7 @@ from ..domain.manual_controls import (
     set_field_lock,
     validate_manual_value,
 )
-from ..domain.models import EVENT_LABELS, PENDING_TYPE, TZ
+from ..domain.models import EVENT_LABELS, PENDING_TYPE, TZ, parse_time
 from ..domain.priority_policy import PRIORITIES
 from ..domain.status_policy import validate_status_shape
 from ..ingestion.client import validate_uid
@@ -148,6 +149,14 @@ class ManualDecisionService:
                 for act in request.actions:
                     self._apply_action(event, act, operator=operator, reason=reason, decided_at=decided_at)
                     if act.field == "priority" and act.action == "unlock":
+                        refresh_item_priority(event, store.customer_profile)
+
+                if clock := (event.priority_detail or {}).get("clock"):
+                    reopened = previous["lifecycle_status"] in TERMINAL and event.lifecycle_status not in TERMINAL
+                    if reopened or event.lifecycle_status in TERMINAL:
+                        updated_clock = advance_clock(clock, start=parse_time(decided_at), reopened=reopened,
+                                                      terminal=event.lifecycle_status in TERMINAL)
+                        event.priority_detail["clock"] = dict(updated_clock, calendar=clock.get("calendar"))
                         refresh_item_priority(event, store.customer_profile)
 
                 if event.review_items or preserved_external_flags:

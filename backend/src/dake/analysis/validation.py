@@ -3,7 +3,7 @@
 from datetime import datetime
 import re
 
-from ..domain.models import Candidate, EVENT_LABELS, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Message
+from ..domain.models import Candidate, EVENT_LABELS, PENDING_TYPE, TYPE_ATTRIBUTE_NAMES, Message, parse_time
 from ..domain.priority_policy import IMPACT_LEVELS, PRIORITY_EVIDENCE_FIELDS, URGENCY_LEVELS
 from ..domain.status_policy import validate_status_shape
 
@@ -146,6 +146,7 @@ def validate_priority_evidence(candidate, available, *, uid, human_keys, custome
     candidate_keys = {available[key].key for key in candidate.evidence_ids}
     facts = [("priority_proposal", proposal or None), *((field, proposal.get(field)) for field in PRIORITY_EVIDENCE_FIELDS)]
     facts.extend(("affected_customer", fact) for fact in proposal.get("affected_customers", []))
+    facts.extend(("clock", fact) for fact in proposal.get("clock_evidence", []))
     for field, fact in facts:
         if fact is None:
             continue
@@ -158,6 +159,16 @@ def validate_priority_evidence(candidate, available, *, uid, human_keys, custome
         if any(key not in available or available[key].key not in allowed_keys or available[key].uid != uid for key in refs
                ) or not priority_quote_matches(quote, [available[key] for key in refs]):
             raise ValueError("优先级维度证据必须是当前事项的同客户本轮原文，情绪和催办须由已确认客户本人发出")
+        if field == "clock":
+            kind = fact.get("kind")
+            if kind == "handoff" and not all(isinstance(fact.get(key), str) and fact[key].strip() and fact[key] in quote
+                                             for key in ("owner", "next_step")):
+                raise ValueError("有效接手需要原文中的负责人和下一步")
+            if kind == "external_wait" and (not fact.get("next_step") or fact["next_step"] not in quote
+                    or not fact.get("review_at") or parse_time(fact["review_at"]) <= max(available[key].sent_at for key in refs)):
+                raise ValueError("外部等待须明确材料请求与后续复查时间")
+            if kind not in {"handoff", "progress", "external_wait", "resume", "production_fault"}:
+                raise ValueError("未识别计时证据类型")
         if field == "affected_customer":
             customer, target = fact.get("customer"), fact.get("uid")
             impact_quote = fact.get("impact_quote")

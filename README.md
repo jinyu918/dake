@@ -292,3 +292,10 @@ npm run openapi
 任务中心分析已同步聊天时，会按客户范围排除不符合条件的客户，并批量跳过没有待处理消息的连续窗口。跳过结果在逐轮记录中明确标记，不创建模型分析尝试或事件快照；有消息的窗口仍保持原时间边界。迟到消息、未核实提交以及历史中断恢复范围不走该快速路径。实时取数阶段不能依据本地消息为空而跳过官方接口。
 
 Linux / WSL 可用用户服务保持本地后端运行：先执行 `.venv/bin/python scripts/install_local_backend_service.py` 注册，再退出此前手动启动的后端，执行 `systemctl --user start dake-aftersales-backend`。服务异常退出后自动重启。通过 `systemctl --user status dake-aftersales-backend` 查看状态，`systemctl --user stop dake-aftersales-backend` 停止。系统或 WSL 关闭期间无法运行，重新启动后从持久进度继续。
+
+
+### 本地事项定级与计时预览
+
+`python -m dake.cli preview-priority --uid <UID> --start <起点> --end <终点>` 显式使用已入库且在既有授权范围内的聊天。配置 `LLM_PROVIDER=xhub` 后，模型评估和处理标记使用独立预览流。终端显示该流及批次计数。
+
+计时预览前在本项目的隔离 MySQL 库执行 `backend/migrations/006_item_priority_deadline.sql` 一次。迁移给事件增加可空到期索引，存量事件保持空值。预览可加 `--calendar <本地日历文件>`。例如 `{"weekdays":[0,1,2,3,4],"opens":"09:00","closes":"17:00","holidays":[]}` 是合成日历，星期一为 0，时段使用上海时间。`python -m dake.cli check-priority-deadlines --calendar <本地日历文件>` 扫描一批到期事项。后台服务显式设置 `PRIORITY_SERVICE_CALENDAR` 后，协调线程也会扫描已投影的到期事项。

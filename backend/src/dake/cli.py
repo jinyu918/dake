@@ -8,8 +8,11 @@ from .bootstrap import build_service
 from .config import Settings, bound, duration
 from .ingestion.adapter import AdapterError
 from .ingestion.client import ChatRecordsError, validate_uid
-from .domain.models import Window, parse_time
-from .repositories.mysql import StorageError
+from .domain.item_clock import ServiceCalendar
+from .domain.models import TZ, Window, parse_time
+from datetime import datetime
+from .services.item_priority import check_due_item_priorities
+from .repositories.mysql import MySQLStore, StorageError
 from .services.replay import ReplayService
 from .repositories.attempts import AttemptError
 
@@ -20,6 +23,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--env-file", default=None, help="本地配置文件，默认使用仓库根 .env")
     sub = root.add_subparsers(dest="command", required=True)
     sub.add_parser("init-db", help="在本项目的本地 MySQL 中建立两张表")
+    check = sub.add_parser("check-priority-deadlines", help="用指定服务日历检查一批已到期事项")
+    check.add_argument("--calendar", required=True)
     for name, help_text in (
         ("fetch", "取数、适配并保存消息，不做分析"),
         ("process", "按配置或水位执行一个周期"),
@@ -34,6 +39,7 @@ def parser() -> argparse.ArgumentParser:
         command.add_argument("--offline", action="store_true", help="仅使用已保存的官方原始响应")
         if name == "preview-priority":
             command.set_defaults(offline=True)
+            command.add_argument("--calendar", help="指定本地服务日历并启用事项计时")
         if name == "process":
             command.add_argument("--retry-attempt", help="明确接续当前范围的执行 ID；已提交时只恢复展示")
     return root
@@ -61,6 +67,15 @@ def main(argv=None) -> int:
     args = parser().parse_args(argv)
     try:
         settings = Settings.load(args.env_file)
+        if args.command == "check-priority-deadlines":
+            calendar = ServiceCalendar.load(args.calendar)
+            store = MySQLStore(**settings.store_kwargs())
+            try:
+                changed = check_due_item_priorities(store, calendar, now=datetime.now(TZ))
+                print(f"本批到期变更 {changed} 项")
+            finally:
+                store.close()
+            return 0
         if args.command != "init-db":
             settings = replace(
                 settings, uid=args.uid or settings.uid,
@@ -73,7 +88,8 @@ def main(argv=None) -> int:
         if args.command == "preview-priority":
             if settings.provider != "xhub" or not args.start or not args.end:
                 raise ValueError("定级预览需要显式的起止时间和 XHub 配置")
-            settings = replace(settings, priority_preview=True)
+            calendar = ServiceCalendar.load(args.calendar) if args.calendar else None
+            settings = replace(settings, priority_preview=True, priority_calendar=calendar)
         with build_service(settings, offline=getattr(args, "offline", False)) as service:
             settings = service.settings
             replay = ReplayService(service)

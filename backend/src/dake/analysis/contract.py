@@ -133,12 +133,20 @@ class AffectedCustomerEvidence(PriorityEvidence):
     impact_quote: str | None
 
 
+class ClockEvidence(PriorityEvidence):
+    kind: Literal["handoff", "progress", "external_wait", "resume", "production_fault"]
+    owner: str | None
+    next_step: str | None
+    review_at: str | None
+
+
 class EvidencePriorityProposal(PriorityProposal):
     impact_evidence: PriorityEvidence | None = None
     urgency_evidence: PriorityEvidence | None = None
     escalated_emotion: PriorityEvidence | None = None
     strong_followup: PriorityEvidence | None = None
     affected_customers: list[AffectedCustomerEvidence] = Field(default_factory=list, max_length=20)
+    clock_evidence: list[ClockEvidence] = Field(default_factory=list, max_length=20)
 
 
 class ExtractedCandidate(StrictObject):
@@ -288,6 +296,8 @@ def parse_output(
             if isinstance(item.priority_proposal, EvidencePriorityProposal):
                 quote_only_items.extend((f"priority_proposal.affected_customers[{i}]", fact)
                                         for i, fact in enumerate(item.priority_proposal.affected_customers))
+                quote_only_items.extend((f"priority_proposal.clock_evidence[{i}]", fact)
+                                        for i, fact in enumerate(item.priority_proposal.clock_evidence))
 
         errors = []
         if item.other_reason is not None and not item.other_reason.value.strip():

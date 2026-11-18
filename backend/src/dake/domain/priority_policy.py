@@ -114,6 +114,7 @@ def merge_priority_proposals(left: dict | None, right: dict | None) -> dict | No
         if fact := right.get(field) or left.get(field):
             merged[field] = fact
     merged["affected_customers"] = merge_affected_customers(left.get("affected_customers", []), right.get("affected_customers", []))
+    merged["clock_evidence"] = [*left.get("clock_evidence", []), *right.get("clock_evidence", [])]
     return deepcopy(merged)
 
 
