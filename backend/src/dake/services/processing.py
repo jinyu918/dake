@@ -96,7 +96,7 @@ class IncrementalService:
         if recorder is not None:
             result.attempt_id = recorder.attempt_id
             recorder.record("ingestion", message_versions=[message_ref(m) for m in messages])
-        pending, context, events, isolated = self._preview_window(uid, window, messages, result)
+        pending, context, events, isolated = self._preview_window(uid, window, messages, result, kinds)
         # 模型调用放在业务事务之外；失败时尚未写入消息和事件。
         bot_pending = [m for m in pending if sender_kind(m.to_dict(), kinds) == "bot"]
         bot_keys = {m.key for m in bot_pending}
@@ -235,7 +235,7 @@ class IncrementalService:
         self.state.advance(uid, self.stream, result.watermark)
         return result
 
-    def _preview_window(self, uid, window, messages, result):
+    def _preview_window(self, uid, window, messages, result, kinds):
         """在事务外冻结本窗输入。严格窗口把迟到和修订隔离开，不混入当前模型输入。"""
         lower = self.settings.start
         incoming = [message for message in messages if lower <= message.sent_at < window.end]
@@ -267,8 +267,18 @@ class IncrementalService:
                         if key:
                             evidence.add(key)
                 revised = {message.key for message in pending_list if message.key in evidence}
+            available = {message.key: message for message in pending_list}
             pending_list, backfill, isolated = classify_pending(
                 pending_list, window, events, self.settings.ingest_lookback, revised)
+            if self.settings.synthetic_alert_source:
+                late_alerts = set()
+                for item in isolated:
+                    key = f"{item['source']}:{item['message_id']}"
+                    if item["kind"] == "late_message" and self._is_structured_alert(available[key], kinds):
+                        late_alerts.add(key)
+                if late_alerts:
+                    pending_list = sorted([*pending_list, *(available[key] for key in late_alerts)], key=message_order)
+                    isolated = [item for item in isolated if f"{item['source']}:{item['message_id']}" not in late_alerts]
             if backfill:
                 result.filter_audit.append(dict(kind="controlled_backfill", count=len(backfill),
                     grace_seconds=int(self.settings.ingest_lookback.total_seconds())))

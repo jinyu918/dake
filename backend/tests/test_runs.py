@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from dake.config import Settings, bound
-from dake.domain.alert_policy import ALERT_SCHEMA
+from dake.domain.alert_policy import ALERT_SCHEMA, append_alert_delivery
 from dake.domain.models import Candidate, Message
 from dake.jobs.runner import RunRunner, prepare_request
 from dake.repositories.runs import RunConflict, RunRepository
@@ -114,7 +114,7 @@ def test_regular_stored_task_respects_alert_opt_in_and_group_scope(tmp_path, mon
                               alert_reminder_minutes=loaded.alert_reminder_minutes)
     request.update(message_source="stored", allowed_groups=["allowed"], strict_window=True)
     body = json.dumps(dict(schema=ALERT_SCHEMA, source="local-fixture", alert_id="fixture", round_id="one",
-                           kind="trigger", severity="warning", affected_uid=request["uid"]))
+                           kind="recovery", severity="warning", affected_uid=request["uid"]))
     allowed = Message(request["uid"], "alert-in", bound("2026-11-08T09:00:00"), body,
                       source="official_chat", conversation_id="allowed", sender_id="fixture-bot")
     outside = replace(allowed, message_id="alert-out", conversation_id="outside")
@@ -122,12 +122,29 @@ def test_regular_stored_task_respects_alert_opt_in_and_group_scope(tmp_path, mon
     monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
         (allowed.uid, allowed.source, allowed.sender_id, m.conversation_id): "bot" for m in (allowed, outside)})
     saved = []
-    monkeypatch.setattr(store, "save_alert_delivery", lambda d, minutes: saved.append((d["message_id"], minutes)),
-                        raising=False)
+    preview = None
+
+    def save_alert(delivery, minutes):
+        nonlocal preview
+        saved.append((delivery["message_id"], minutes))
+        preview = append_alert_delivery(preview, delivery, lambda _: None, minutes)
+
+    monkeypatch.setattr(store, "save_alert_delivery", save_alert, raising=False)
     result = execute_next(repository, runner, request, total)
     assert result["status"] == "succeeded" and seen[-1].synthetic_alert_source == loaded.synthetic_alert_source
     assert saved == ([(allowed.key, 5)] if enabled else [])
     assert (allowed.key, provider.name) in store.processed and (outside.key, provider.name) not in store.processed
+    if enabled:
+        assert preview["state"] == "待匹配恢复"
+        trigger = replace(allowed, message_id="late-trigger", sent_at=allowed.sent_at - timedelta(hours=1),
+                          content=body.replace('"recovery"', '"trigger"'))
+        store.messages[trigger.key] = trigger
+        later = dict(request, data_start=request["start"], start=bound("2026-11-12").isoformat(),
+                     end=bound("2026-11-13").isoformat())
+        result = execute_next(repository, runner, later, total)
+        assert result["status"] == "succeeded"
+        assert preview["state"] == "已恢复" and preview["recovered_at"] == allowed.sent_at.isoformat()
+        assert [(r["kind"], r["at"]) for r in preview["reminders"]] == [("历史首次触发", trigger.sent_at.isoformat())]
     assert not provider.calls
 
 
