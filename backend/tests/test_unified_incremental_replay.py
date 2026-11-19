@@ -464,9 +464,7 @@ def test_vip_priority_boost_cap_supporting_evidence_retention_and_lock_protectio
     )
     event_id = service.run_window(UID, win("2026-11-10 13:00:00")).created[0]
     ev1 = store.events[event_id]
-    # 基础 P3，因 fresh L9 提一档为 P2
-    assert ev1.base_priority == "P3"
-    assert ev1.priority == "P2"
+    assert (ev1.priority_detail["objective_priority"], ev1.base_priority, ev1.priority) == ("P3", "P2", "P1")
     assert ev1.priority_detail["vip_boosted"] is True
 
     # 人工锁定 status 为 等待中(等待内部支撑)

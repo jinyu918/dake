@@ -409,6 +409,11 @@ def parse_output(
         if demoted_typed_attributes:
             ext_payload["demoted_typed_attributes"] = demoted_typed_attributes
 
+        proposal = item.priority_proposal
+        priority_proposal = proposal.model_dump(exclude_none=True) if proposal else None
+        if proposal and proposal.impact == "critical" and not isinstance(proposal, EvidencePriorityProposal):
+            priority_proposal["impact_evidence"] = dict(evidence_ids=proposal.evidence_ids, quote=proposal.quote)
+
         candidate = Candidate(
             type=item.type,
             topic_key=item.topic_key,
@@ -434,7 +439,7 @@ def parse_output(
             removed_types=removed_types,
             typed_attributes=typed_attributes,
             status_proposal=item.status_proposal.model_dump() if item.status_proposal else None,
-            priority_proposal=item.priority_proposal.model_dump(exclude_none=True) if item.priority_proposal else None,
+            priority_proposal=priority_proposal,
         )
         candidates.append(candidate)
     try:

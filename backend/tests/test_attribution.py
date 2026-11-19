@@ -275,6 +275,19 @@ def model_output(msg, **changes):
     return json.dumps(dict(schema_version="4.0", candidates=[value]), ensure_ascii=False)
 
 
+def test_regular_priority_uses_incident_quote_without_changing_output_schema():
+    from dake.analysis.attribution import AttributionOutput
+    from dake.analysis.contract import parse_output
+    from dake.domain.priority_policy import evaluate_priority_proposal
+
+    msg = message("confirmed-incident", 1, "关键生产链路全量中断且无绕行")
+    proposal = dict(impact="critical", urgency="unknown", reason="重大生产事故",
+                    evidence_ids=[msg.key], quote=msg.content)
+    item, = parse_output(model_output(msg, priority_proposal=proposal), [msg], [], [], output_model=AttributionOutput)
+    result = evaluate_priority_proposal(item.priority_proposal, created=True)
+    assert (result["base_priority"], result["priority"]) == ("P0", "P0")
+
+
 def test_formal_xhub_uses_four_way_contract_without_changing_stream(tmp_path):
     msg = message("new", 1)
     settings = Settings(uid=UID, data_dir=tmp_path, start=window(1).start, end=window(2).end, provider="xhub")
@@ -496,7 +509,7 @@ def test_response_evidence_rejects_unverified_or_unsupported_source(case):
 
 
 def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp_path, monkeypatch):
-    msg = message("preview", 1, "虚构客户 UID: affected-uid 的上传已出现局部降级，可绕行；另有 UID: pending-uid 可能受影响。")
+    msg = message("preview", 1, "虚构客户 UID: affected-uid 已有个别上传请求失败；另有 UID: pending-uid 可能受影响。")
     other = replace(message("foreign", 1, "其他客户私有合成聊天"), uid="affected-uid")
     store = MemoryStore()
     for entry in (msg, other):
@@ -507,10 +520,10 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
                            "pending-uid": dict(level="L10", level_state="fresh")})
     baseline = Settings(uid=UID, data_dir=tmp_path / "data", start=window(1).start, end=window(3).end, provider="xhub")
     settings = replace(baseline, priority_preview=True)
-    proposal = dict(impact="medium", urgency="unknown", reason="局部降级", **_priority_quote(msg),
+    proposal = dict(impact="low", urgency="unknown", reason="个别上传失败", **_priority_quote(msg),
                     impact_evidence=_priority_quote(msg), affected_customers=[
         dict(customer="affected-uid", uid="affected-uid", status="confirmed",
-             impact_quote="上传已出现局部降级", **_priority_quote(msg)),
+             impact_quote="已有个别上传请求失败", **_priority_quote(msg)),
         dict(customer="pending-uid", uid="pending-uid", status="pending", impact_quote=None, **_priority_quote(msg)),
     ])
     calls = []
@@ -544,7 +557,7 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
         event = store.events[event_id]
         assert (event.uid, event.base_priority, event.priority) == (UID, "P2", "P1")
         detail = event.priority_detail
-        assert detail["effective_customer_uid"] == "affected-uid"
+        assert (detail["effective_customer_uid"], detail["objective_priority"]) == ("affected-uid", "P3")
         assert detail["affected_customers_pending"]
         assert detail["affected_customers"][0]["evidence_refs"][0]["digest"] == msg.digest
         from dake.analysis.attribution import attribution_version
@@ -565,12 +578,12 @@ def test_preview_replays_only_local_reporter_messages_and_persists_regrading(tmp
         assert refresh_directory_priorities(store, ["affected-uid"]) == 1
         updated = store.events[event_id]
         assert updated.priority == "P1"
-        assert updated.priority_detail["pre_timer_priority"] == "P2"
+        assert updated.base_priority == updated.priority_detail["pre_timer_priority"] == "P3"
         assert updated.version == 2 and updated.updated_by[-1]["source"] == "directory"
         set_field_lock(updated, "priority", False, operator="合成操作人", reason="采用最新建议",
                        decided_at=window(2).end.isoformat())
         assert refresh_item_priority(updated, store.customer_profile)
-        assert updated.priority == "P2"
+        assert updated.priority == "P3"
         version = updated.version
         assert main(["preview-priority", "--uid", UID, "--start", window(3).start.isoformat(),
                      "--end", window(3).end.isoformat(), "--interval", "1d"]) == 0

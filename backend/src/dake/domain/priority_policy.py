@@ -27,7 +27,6 @@ ITEM_PRIORITY_RULE_VERSION = "item-priority-v1"
 PRIORITY_EVIDENCE_FIELDS = ("impact_evidence", "urgency_evidence", "escalated_emotion", "strong_followup")
 
 SUPER_LARGE_BOOST_MAP = {
-    "P3": "P2",
     "P2": "P1",
     # 封顶 P1：禁止仅凭客户身份进入代表真实生产中断或数据安全风险的 P0。
     "P1": "P1",
@@ -52,6 +51,20 @@ def customer_level_number(level: str | None, level_state: str | None) -> int:
     return -1
 
 
+def effective_priority_profile(uid, facts, profile_reader):
+    best_uid, best_profile = uid, profile_reader(uid) or {}
+    best_rank = customer_level_number(best_profile.get("level"), best_profile.get("level_state"))
+    confirmed_uids = dict.fromkeys(
+        fact["uid"] for fact in facts if fact["status"] == "confirmed" and fact.get("uid") not in {None, uid}
+    )
+    for customer_uid in confirmed_uids:
+        profile = profile_reader(customer_uid) or {}
+        rank = customer_level_number(profile.get("level"), profile.get("level_state"))
+        if rank > best_rank:
+            best_uid, best_profile, best_rank = customer_uid, profile, rank
+    return (best_uid if best_rank >= 0 else None), best_profile
+
+
 def calculate_base_priority(impact: str, urgency: str) -> str:
     """根据影响与紧迫度计算不含客户身份加权的基础优先级。"""
     if impact not in IMPACT_LEVELS:
@@ -61,18 +74,21 @@ def calculate_base_priority(impact: str, urgency: str) -> str:
     return BASE_PRIORITY_MATRIX[impact][urgency]
 
 
-def apply_customer_tier(base_priority: str, level: str | None = None, level_state: str | None = None) -> dict:
-    """结合客户目录等级计算最终优先级；L9/L10 提一档并封顶 P1，未知等级标明待确认。"""
-    if base_priority not in PRIORITIES:
+def apply_customer_tier(objective_priority: str, level: str | None = None, level_state: str | None = None) -> dict:
+    """结合客户目录等级计算最终优先级；L9/L10 已知影响基础 P2 起并提档至 P1，未知等级标明待确认。"""
+    if objective_priority not in PRIORITIES:
         raise ValueError("基础优先级不在允许档位中")
     state = level_state or "unknown"
     segment = customer_segment(level, state)
     super_large = is_super_large(level, state)
+    base_priority = "P2" if super_large and objective_priority == "P3" else objective_priority
     priority = SUPER_LARGE_BOOST_MAP[base_priority] if super_large else base_priority
     vip_boosted = priority != base_priority
     level_note = None
     if base_priority != "待评估":
-        if vip_boosted:
+        if base_priority != objective_priority:
+            level_note = f"{level} 超级大客基础档从 P2 起，处理档提至 {priority}"
+        elif vip_boosted:
             level_note = f"因 {level} 超级大客由基础 {base_priority} 提升一档至 {priority}"
         elif super_large and base_priority in {"P0", "P1"}:
             level_note = f"{level} 超级大客基础已为 {base_priority}，同档优先排序"
@@ -81,6 +97,7 @@ def apply_customer_tier(base_priority: str, level: str | None = None, level_stat
     return dict(
         priority=priority,
         base_priority=base_priority,
+        objective_priority=objective_priority,
         vip_boosted=vip_boosted,
         customer_level=level if customer_level_number(level, state) >= 0 else None,
         level_state=state,
@@ -91,6 +108,17 @@ def apply_customer_tier(base_priority: str, level: str | None = None, level_stat
 def _has_dedicated_impact(proposal: dict) -> bool:
     evidence = proposal.get("impact_evidence") or {}
     return bool(evidence.get("evidence_ids") and (evidence.get("quote") or "").strip())
+
+
+def stored_objective_priority(base_priority: str, detail: dict) -> str:
+    if detail.get("impact") == "critical":
+        return "P0" if _has_dedicated_impact(detail) else "待评估"
+    objective_priority = detail.get("objective_priority")
+    if objective_priority in PRIORITIES:
+        return "待评估" if objective_priority == "P0" else objective_priority
+    if detail.get("impact") in IMPACT_LEVELS and detail.get("urgency") in URGENCY_LEVELS:
+        return calculate_base_priority(detail["impact"], detail["urgency"])
+    return "待评估" if base_priority == "P0" else base_priority
 
 
 def merge_priority_proposals(left: dict | None, right: dict | None) -> dict | None:
@@ -137,6 +165,9 @@ def response_priority(customer_priority: str, signals: dict) -> str:
         return "P1"
     if signals.get("strong_followup") and customer_priority == "P3":
         return "P2"
+    if (signals.get("rule_version") == ITEM_PRIORITY_RULE_VERSION and customer_priority != "P0"
+            and signals.get("customer_priority") == customer_priority and signals.get("pre_timer_priority") == "P1"):
+        return "P1"
     return customer_priority
 
 
@@ -154,25 +185,19 @@ def evaluate_priority_proposal(
     """仅当本轮有新依据时重评优先级；迟到消息不压低已有更高判断，客户沉默不自动降级。"""
     level = (customer_profile or {}).get("level")
     level_state = (customer_profile or {}).get("level_state") or "unknown"
+    previous = current_detail or {}
+    current_objective = stored_objective_priority(current_base_priority, previous)
     if proposal is None:
-        # 若已有基础优先级且客户等级刷新（如刚同步出 L10），允许在不改变事实的前提下刷新等级加权。
-        if current_base_priority != "待评估" and customer_profile is not None:
-            recalculated = apply_customer_tier(current_base_priority, level, level_state)
-            detail = deepcopy(current_detail or {})
-            customer_priority = recalculated["priority"]
-            priority = response_priority(customer_priority, detail)
-            if detail.get("rule_version") == ITEM_PRIORITY_RULE_VERSION:
-                recalculated.update(customer_priority=customer_priority, pre_timer_priority=priority, priority=priority)
-            if priority != current_priority or any(
-                detail and detail.get(key) != recalculated[key] for key in ("customer_level", "level_state", "level_note")
-            ):
-                detail.update(recalculated)
-                return dict(
-                    adopted=True,
-                    priority=priority,
-                    base_priority=recalculated["base_priority"],
-                    detail=detail,
-                )
+        if customer_profile is not None or current_base_priority == "P0":
+            tier = apply_customer_tier(current_objective, level, level_state)
+            customer_priority = tier["priority"]
+            priority = response_priority(customer_priority, previous)
+            detail = dict(previous, **tier)
+            detail.update(customer_priority=customer_priority, pre_timer_priority=priority, priority=priority)
+            if current_base_priority == "P0" and current_objective == "待评估":
+                detail["review_required"] = True
+            if detail != previous or priority != current_priority:
+                return dict(adopted=True, priority=priority, base_priority=tier["base_priority"], detail=detail)
         return dict(
             adopted=False,
             priority=current_priority,
@@ -187,7 +212,7 @@ def evaluate_priority_proposal(
     base = calculate_base_priority(impact, urgency)
     refs = deepcopy(evidence_refs or proposal.get("evidence_refs", []))
 
-    if base == "待评估" and not created and current_base_priority != "待评估" and not any(
+    if base == "待评估" and not created and current_objective != "待评估" and not any(
         proposal.get(field) for field in PRIORITY_EVIDENCE_FIELDS[2:]
     ):
         return dict(
@@ -197,9 +222,9 @@ def evaluate_priority_proposal(
             detail=deepcopy(current_detail),
         )
 
-    if late and not created and current_base_priority != "待评估":
+    if late and not created and current_objective != "待评估":
         # 迟到补证只有在揭示更高客观影响时才升级，不把当前更高优先级拉低。
-        if PRIORITY_RANKS[base] >= PRIORITY_RANKS[current_base_priority]:
+        if PRIORITY_RANKS[base] >= PRIORITY_RANKS[current_objective]:
             return dict(
                 adopted=False,
                 priority=current_priority,
@@ -209,9 +234,8 @@ def evaluate_priority_proposal(
 
     objective = dict(impact=impact, urgency=urgency, reason=reason, evidence_refs=refs)
     objective.update({field: deepcopy(proposal[field]) for field in PRIORITY_EVIDENCE_FIELDS[:2] if proposal.get(field)})
-    if base == "待评估" and not created and current_base_priority != "待评估":
-        base = current_base_priority
-        previous = current_detail or {}
+    if base == "待评估" and not created and current_objective != "待评估":
+        base = current_objective
         objective = {field: deepcopy(previous[field]) for field in (*objective, *PRIORITY_EVIDENCE_FIELDS[:2])
                      if field in previous}
     tiered = apply_customer_tier(base, level, level_state)
@@ -246,7 +270,7 @@ def event_priority_sort_key(event: dict, customer_profile: dict | None = None) -
     priority = event.get("priority") or "待评估"
     rank = PRIORITY_RANKS.get(priority, 4)
     detail = event.get("priority_detail") or {}
-    profile = {} if detail.get("rule_version") == ITEM_PRIORITY_RULE_VERSION else customer_profile or {}
+    profile = {} if "objective_priority" in detail or detail.get("rule_version") == ITEM_PRIORITY_RULE_VERSION else customer_profile or {}
     level = profile.get("level") or detail.get("customer_level")
     state = profile.get("level_state") or detail.get("level_state")
     level_num = customer_level_number(level, state)

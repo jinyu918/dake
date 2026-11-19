@@ -3,47 +3,46 @@
 from copy import deepcopy
 from datetime import datetime
 
+from ..domain.alert_policy import ALERT_EVENT_TYPE
 from ..domain.item_clock import TERMINAL, evaluate_clock
 from ..domain.models import TZ, Window, parse_time
 
 from ..domain.manual_controls import is_locked
-from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION, apply_customer_tier, customer_level_number, response_priority
+from ..domain.priority_policy import (
+    apply_customer_tier, effective_priority_profile, response_priority, stored_objective_priority,
+)
 
 
-def refresh_item_priority(event, profile_reader, calendar=None, now=None):
+def refresh_item_priority(event, profile_reader, calendar=None, now=None, *, projection=False):
     detail = event.priority_detail or {}
     facts = detail.get("affected_customers", [])
-    if event.lifecycle_status in TERMINAL:
+    if event.type == ALERT_EVENT_TYPE or (event.lifecycle_status in TERMINAL and not projection):
         return False
-    if not facts and not detail.get("clock") and detail.get("rule_version") != ITEM_PRIORITY_RULE_VERSION:
+    if event.base_priority == "待评估" and not facts and not detail.get("rule_version") and not detail.get("clock"):
         return False
-    best_uid = event.uid
-    best_level, best_state, best_rank = None, "unknown", -1
-    uids = dict.fromkeys([event.uid, *(fact["uid"] for fact in facts if fact["status"] == "confirmed")])
-    for uid in uids:
-        profile = profile_reader(uid) or {}
-        level, state = profile.get("level"), profile.get("level_state")
-        rank = customer_level_number(level, state)
-        if rank > best_rank:
-            best_uid, best_level, best_state, best_rank = uid, level, state, rank
-    tier = apply_customer_tier(event.base_priority, best_level, best_state)
+    effective_uid, profile = effective_priority_profile(event.uid, facts, profile_reader)
+    objective = stored_objective_priority(event.base_priority, detail)
+    tier = apply_customer_tier(objective, profile.get("level"), profile.get("level_state"))
     customer_priority = tier["priority"]
     suggested = response_priority(customer_priority, detail)
     updated = dict(detail)
     updated.update(tier)
     updated["pre_timer_priority"] = suggested
-    if detail.get("clock"):
+    if event.base_priority == "P0" and objective == "待评估":
+        updated["review_required"] = True
+    if detail.get("clock") and not projection:
         clock = evaluate_clock(detail["clock"], updated, calendar, now or datetime.now(TZ))
         updated["clock"] = clock
     adopted = event.priority if is_locked(event, "priority") else suggested
-    updated.update(rule_version=ITEM_PRIORITY_RULE_VERSION, effective_customer_uid=best_uid if best_rank >= 0 else None,
+    updated.update(effective_customer_uid=effective_uid,
                    affected_customers_pending=any(fact["status"] == "pending" for fact in facts),
                    customer_priority=customer_priority, pre_timer_priority=suggested, priority=adopted)
-    if updated == detail and adopted == event.priority:
+    if updated == detail and adopted == event.priority and tier["base_priority"] == event.base_priority:
         return False
     if adopted != event.priority or event.severity in {"P0", "P1", "P2", "P3", "待评估"}:
         event.severity = adopted
     event.priority = adopted
+    event.base_priority = tier["base_priority"]
     event.priority_detail = updated
     return True
 
@@ -52,12 +51,12 @@ def save_priority_refresh(store, event, window, changed_in_window=False, *, sour
     if changed_in_window:
         revision = event.updated_by[-1]
         if "changed_fields" in revision:
-            revision["changed_fields"] = list(dict.fromkeys([*revision["changed_fields"], "priority", "priority_detail"]))
+            revision["changed_fields"] = list(dict.fromkeys([*revision["changed_fields"], "priority", "base_priority", "priority_detail"]))
     else:
         event.version = max(event.version, len(event.updated_by)) + 1
         revision = dict(action="updated", window_start=window.start.isoformat(), window_end=window.end.isoformat(),
                         message_ids=[], revision_no=len(event.updated_by) + 1, change_kind="classification",
-                        change_summary="按本地档案重评优先级", changed_fields=["priority", "priority_detail"],
+                        change_summary="按本地档案重评优先级", changed_fields=["priority", "base_priority", "priority_detail"],
                         recorded_at=datetime.now(TZ).isoformat())
         if source is not None:
             revision["source"] = source

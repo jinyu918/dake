@@ -42,7 +42,8 @@ export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
     <section aria-label="事项定级与证据" className="classification-note">
       <h3>事项定级与证据</h3>
       <p>
-        基础档 {event.base_priority} · 客户调整后{' '}
+        客观档 {String(priority.objective_priority ?? event.base_priority)} ·
+        基础档 {event.base_priority} · 客户提档后{' '}
         {String(priority.customer_priority ?? '待评估')} · 自动建议{' '}
         {String(priority.pre_timer_priority ?? '待评估')} · 生效{' '}
         {event.priority}

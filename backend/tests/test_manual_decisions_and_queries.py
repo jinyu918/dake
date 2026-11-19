@@ -245,6 +245,8 @@ def test_query_service_filters_multilabel_status_priority_and_sorts_by_business_
             severity="P0",
             priority="P0",
             base_priority="P0",
+            priority_detail=dict(impact="critical", impact_evidence=dict(
+                evidence_ids=["synthetic"], quote="关键生产链路全量中断且无绕行")),
             summary="已解决故障",
             created_on=t1,
         ),
@@ -280,6 +282,8 @@ def test_query_service_filters_multilabel_status_priority_and_sorts_by_business_
             severity="P0",
             priority="P0",
             base_priority="P0",
+            priority_detail=dict(impact="critical", impact_evidence=dict(
+                evidence_ids=["synthetic"], quote="关键生产链路全量中断且无绕行")),
             summary="未解决核心中断",
             created_on=t2,
         ),
@@ -310,6 +314,51 @@ def test_query_service_filters_multilabel_status_priority_and_sorts_by_business_
         queries.events(UID, "stub-v1", status="未知非法状态")
     with pytest.raises(ValueError):
         queries.events(UID, "stub-v1", priority="P9")
+
+
+@pytest.mark.parametrize(("locked", "expected"), [(False, "P1"), (True, "P2")])
+def test_legacy_vip_priority_is_projected_consistently_without_writing(tmp_path, locked, expected):
+    from dake.domain.manual_controls import set_field_lock
+
+    store = MemoryStore()
+    store._execute = lambda *_args, **_kwargs: ([], 0)
+    store.profiles[UID] = dict(level="L10", level_state="fresh")
+    start = parse_time("2026-11-10 09:00:00")
+    event = Event(event_id="legacy-vip", uid=UID, stream="stub-v1", type="功能需求", topic_key="synthetic",
+                  start_time=start, end_time=start, created_on=start, summary="合成报表咨询", status="跟进中",
+                  severity="P2", priority="P2", base_priority="P3")
+    if locked:
+        set_field_lock(event, "priority", True, reason="人工复核后维持 P2")
+    with store.transaction(UID):
+        store.save_event(event)
+    queries = QueryService(replace(Settings(), data_dir=tmp_path), store_factory=BoundStoreFactory(store))
+    item, = queries.events(UID, event.stream, priority=expected)["items"]
+    assert (item["priority"], item["base_priority"]) == (expected, "P2")
+    assert item["priority_detail"]["objective_priority"] == "P3"
+    assert item["priority_detail"]["pre_timer_priority"] == "P1"
+    assert item == queries.event(event.event_id, UID, event.stream)
+    assert queries.events(UID, event.stream, priority="P3")["items"] == []
+    assert store.events[event.event_id].to_dict() == event.to_dict()
+
+    store.profiles[UID]["level_state"] = "expired"
+    fallback = queries.event(event.event_id, UID, event.stream)
+    assert (fallback["base_priority"], fallback["priority"]) == ("P3", "P2" if locked else "P3")
+
+
+def test_legacy_p0_without_confirmed_incident_is_pending_in_list_and_detail(tmp_path):
+    store = MemoryStore()
+    store._execute = lambda *_args, **_kwargs: ([], 0)
+    store.profiles[UID] = dict(level="L9", level_state="fresh")
+    start = parse_time("2026-11-10 09:00:00")
+    event = Event(event_id="legacy-unverified-p0", uid=UID, stream="stub-v1", type="排障", topic_key="synthetic",
+                  start_time=start, end_time=start, created_on=start, summary="合成故障待核实", status="跟进中", severity="P0")
+    with store.transaction(UID):
+        store.save_event(event)
+    queries = QueryService(replace(Settings(), data_dir=tmp_path), store_factory=BoundStoreFactory(store))
+    assert queries.events(UID, event.stream, priority="P0")["items"] == []
+    item, = queries.events(UID, event.stream, priority="待评估")["items"]
+    assert item["base_priority"] == "待评估" and item["priority_detail"]["review_required"]
+    assert item == queries.event(event.event_id, UID, event.stream)
 
 
 def test_openapi_includes_manual_decisions_and_preserves_request_optionality(tmp_path):

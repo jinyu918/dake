@@ -162,9 +162,9 @@ def test_priority_matrix_and_super_large_customer_cap():
     assert calculate_base_priority("low", "unknown") == "P3"
     assert calculate_base_priority("medium", "soon") == "P2"
 
-    # L10 普通咨询 P3 -> 提升一档至 P2，不压过其他客户 P0/P1 故障。
     boosted_p3 = apply_customer_tier("P3", "L10", "fresh")
-    assert boosted_p3["priority"] == "P2" and boosted_p3["vip_boosted"] is True
+    assert (boosted_p3["objective_priority"], boosted_p3["base_priority"], boosted_p3["priority"]) == ("P3", "P2", "P1")
+    assert boosted_p3["vip_boosted"] is True
 
     # L9 中等影响 P2 -> 提升一档至 P1。
     boosted_p2 = apply_customer_tier("P2", "L9", "fresh")
@@ -245,6 +245,10 @@ def test_full_base_priority_matrix(impact, expected):
 @pytest.mark.parametrize(("impact", "signal", "level", "state", "expected"), [
     ("unknown", "escalated_emotion", "L3", "fresh", ("待评估", "待评估", "P1", True)),
     ("unknown", "strong_followup", "L3", "fresh", ("待评估", "待评估", "待评估", True)),
+    ("unknown", None, "L9", "fresh", ("待评估", "待评估", "待评估", False)),
+    ("low", None, "L9", "fresh", ("P2", "P1", "P1", False)),
+    ("low", None, "L10", "expired", ("P3", "P3", "P3", False)),
+    ("high", None, "L10", "fresh", ("P1", "P1", "P1", False)),
     ("low", "strong_followup", "L6", "fresh", ("P3", "P3", "P2", False)),
     ("medium", "escalated_emotion", "L10", "expired", ("P2", "P2", "P1", False)),
     ("medium", None, "L10", "fresh", ("P2", "P1", "P1", False)),
@@ -265,7 +269,7 @@ def test_response_priority_keeps_objective_and_customer_steps(impact, signal, le
 def test_legacy_critical_without_dedicated_impact_evidence_requires_review():
     proposal = dict(impact="critical", urgency="immediate", reason="待核实",
                     evidence_ids=["synthetic:report"], quote="请立即查看")
-    result = evaluate_priority_proposal(proposal, created=True)
+    result = evaluate_priority_proposal(proposal, customer_profile=dict(level="L10", level_state="fresh"), created=True)
     assert (result["base_priority"], result["priority"], result["detail"]["review_required"]) == ("待评估", "待评估", True)
 
 

@@ -437,15 +437,12 @@ class MySQLStore:
         return dict(rows[0]) if rows else None
 
     def item_priority_scopes(self, changed_uids):
-        from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION
-
         scopes = set()
         for uid in sorted(set(changed_uids)):
             rows, _ = self._execute(
                 """SELECT DISTINCT uid,stream FROM events
-                   WHERE JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority_detail.rule_version'))=%s
-                     AND (uid=%s OR JSON_CONTAINS(payload,CAST(%s AS JSON),'$.priority_detail.affected_customers'))""",
-                (ITEM_PRIORITY_RULE_VERSION, uid, _json(dict(uid=uid, status="confirmed"))),
+                   WHERE uid=%s OR JSON_CONTAINS(payload,CAST(%s AS JSON),'$.priority_detail.affected_customers')""",
+                (uid, _json(dict(uid=uid, status="confirmed"))),
             )
             scopes.update((row["uid"], row["stream"]) for row in rows)
         return sorted(scopes)

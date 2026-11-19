@@ -225,6 +225,7 @@ def apply_attributions(
     observe,
     customer_keys=(),
     customer_profile=None,
+    profile_reader=None,
     sender_roles=None,
     recorder=None,
 ):
@@ -358,6 +359,7 @@ def apply_attributions(
                     continuity=boundary,
                     field_corrections=field_corrections,
                     customer_profile=customer_profile,
+                    profile_reader=profile_reader,
                     sender_roles=sender_roles,
                 )
             if updated is not None:

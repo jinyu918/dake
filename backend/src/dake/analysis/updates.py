@@ -15,7 +15,7 @@ from ..domain.manual_controls import (
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
 from ..domain.item_clock import TERMINAL, advance_clock
-from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, clear_legacy_timeout_upgrade, evaluate_priority_proposal, merge_affected_customers
+from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, clear_legacy_timeout_upgrade, effective_priority_profile, evaluate_priority_proposal, merge_affected_customers
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
 from .summary_changes import explicitly_corrects_typed_attribute, prepare_summary, restrict_fields
@@ -156,7 +156,8 @@ def has_structured_change(candidate, event, available=None, *, customer_profile=
         for name, fact in facts.items()
     )
     priority_refresh = False
-    if candidate.priority_proposal is None and customer_profile is not None and event.base_priority != "待评估":
+    if (candidate.priority_proposal is None and customer_profile is not None and event.base_priority != "待评估"
+            and not (event.priority_detail or {}).get("affected_customers")):
         refreshed = evaluate_priority_proposal(
             None,
             current_priority=event.priority,
@@ -219,6 +220,7 @@ def apply_candidate(
     continuity=None,
     field_corrections: dict[int, set[str]] | None = None,
     customer_profile: dict | None = None,
+    profile_reader=None,
     sender_roles: dict | None = None,
 ):
     """创建或更新稳定 ID，融合分类、状态、优先级与人工锁定规则；无变化时返回 None。"""
@@ -498,8 +500,12 @@ def apply_candidate(
     old_clock = old_detail.get("clock")
     old_impacts = old_detail.get("affected_customers", [])
     new_impacts = (candidate.priority_proposal or {}).get("affected_customers", [])
-    # 5. 业务优先级确定性评估（Impact × Urgency + L9/L10 提档封顶）与人工锁保护
-    if candidate.priority_proposal is not None or (not old_impacts and customer_profile is not None and event.base_priority != "待评估"):
+    impacts = merge_affected_customers(old_impacts, new_impacts)
+    priority_profile = customer_profile
+    if impacts and profile_reader is not None:
+        _, priority_profile = effective_priority_profile(uid, impacts, profile_reader)
+    if (candidate.priority_proposal is not None or event.base_priority == "P0"
+            or (priority_profile is not None and event.base_priority != "待评估")):
         pp = candidate.priority_proposal
         pp_keys = [key for key in (pp or {}).get("evidence_ids", []) if key in available]
         pp_late = bool(not created and old_end_time is not None and pp_keys and max(available[k].sent_at for k in pp_keys) < old_end_time)
@@ -508,7 +514,7 @@ def apply_candidate(
             current_priority=event.priority,
             current_base_priority=event.base_priority,
             current_detail=event.priority_detail,
-            customer_profile=customer_profile,
+            customer_profile=priority_profile,
             evidence_refs=(pp or {}).get("evidence_refs", []),
             late=pp_late,
             created=created,
@@ -522,9 +528,8 @@ def apply_candidate(
                     f"锁定优先级（{event.priority}）收到新评估结果（{prio_eval['priority']}），待核对",
                     (pp or {}).get("evidence_refs", []),
                 )
-                if settings.priority_preview:
-                    event.base_priority = prio_eval["base_priority"]
-                    event.priority_detail = dict(prio_eval["detail"], priority=event.priority)
+                event.base_priority = prio_eval["base_priority"]
+                event.priority_detail = dict(prio_eval["detail"], priority=event.priority)
             else:
                 event.priority = prio_eval["priority"]
                 event.base_priority = prio_eval["base_priority"]
@@ -540,7 +545,7 @@ def apply_candidate(
                 f"锁定优先级收到新等级建议（{candidate.severity}），待核对",
             )
         else:
-            event.severity = candidate.severity
+            event.severity = event.priority if candidate.severity == "P0" else candidate.severity
 
     # 6. 维护显式配置的关闭宽限锚点（默认 closed_statuses 为空，已解决仍允许重开）。
     if created or (not_late and current_progress):
@@ -577,7 +582,7 @@ def apply_candidate(
 
     if old_impacts or new_impacts:
         event.priority_detail = dict(event.priority_detail or {},
-                                     affected_customers=merge_affected_customers(old_impacts, new_impacts))
+                                     affected_customers=impacts)
 
     if event.review_items or preserved_external_flags:
         event.review_flag = compose_review_flag(event.review_items, extra_flags=preserved_external_flags)

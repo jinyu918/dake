@@ -143,6 +143,12 @@ class IncrementalService:
                         message_keys=[message.key], policy_version=FILTER_VERSION, identity_config_hash=fingerprint))
                 blocked = set()
                 customer_profile = _load_customer_profile(self.store, uid)
+                profiles = {uid: customer_profile}
+
+                def profile_for(customer_uid):
+                    if customer_uid not in profiles:
+                        profiles[customer_uid] = _load_customer_profile(self.store, customer_uid)
+                    return profiles[customer_uid]
                 customer_keys = {m.key for m in eligible if confirmed_sender_role(m.to_dict(), roles) == "customer"}
                 explicit = any(candidate.decision is not None for candidate in candidates)
                 if explicit:
@@ -152,7 +158,7 @@ class IncrementalService:
                         visible_events=history.events, available=available, pending=pending, eligible=eligible,
                         background=background, result=result, settings=self.settings, observe=observe,
                         customer_keys=customer_keys,
-                        customer_profile=customer_profile, sender_roles=roles,
+                        customer_profile=customer_profile, profile_reader=profile_for, sender_roles=roles,
                         recorder=recorder)
                 if not explicit:
                     for candidate in candidates:
@@ -178,7 +184,7 @@ class IncrementalService:
                                     before=None, after=None)
                         continue
                     updated = apply_candidate(candidate, old, available, uid, self.stream, window, self.settings, pending_keys,
-                                              customer_profile=customer_profile, sender_roles=roles)
+                                              customer_profile=customer_profile, profile_reader=profile_for, sender_roles=roles)
                     if recorder is not None and updated is not None:
                         updated.updated_by[-1]["attempt_id"] = recorder.attempt_id
                     if observer is not None or recorder is not None:
@@ -199,13 +205,6 @@ class IncrementalService:
                         if updated.event_id not in result.updated:
                             result.updated.append(updated.event_id)
                 if self.settings.priority_preview:
-                    profiles = {uid: customer_profile}
-
-                    def profile_for(customer_uid):
-                        if customer_uid not in profiles:
-                            profiles[customer_uid] = _load_customer_profile(self.store, customer_uid)
-                        return profiles[customer_uid]
-
                     for event in events:
                         if refresh_item_priority(event, profile_for, self.settings.priority_calendar, window.end):
                             updated = event.event_id in result.updated or event.event_id in result.created

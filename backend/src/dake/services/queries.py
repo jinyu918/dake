@@ -1,20 +1,21 @@
 """面向页面的只读查询，不读取或公开原始响应目录。"""
 
 from contextlib import contextmanager
+from copy import deepcopy
 from datetime import timedelta
 import re
 
 from ..analysis.providers.xhub import configured_stream
 from ..domain.alert_policy import ALERT_EVENT_TYPE
 from ..domain.customer_policy import customer_segment, is_super_large
-from ..domain.manual_controls import is_locked
 from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE, message_order, parse_time
-from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION, PRIORITIES, apply_customer_tier, clear_legacy_timeout_upgrade, event_priority_sort_key
+from ..domain.priority_policy import PRIORITIES, clear_legacy_timeout_upgrade, event_priority_sort_key
 from ..domain.status_policy import LIFECYCLE_STATUSES, RESOLUTIONS, WAITING_REASONS
 from ..ingestion.client import validate_uid
 from ..repositories.mysql import MySQLStore, StorageError
 from ..repositories.attempts import AttemptRepository
 from .enrich import enrich_event, enrich_events, enrich_evidence
+from .item_priority import refresh_item_priority
 from .event_changes import event_changes
 from .execution_changes import execution_changes
 from .sender_identity import load_sender_roles
@@ -168,6 +169,22 @@ class QueryService:
         with self.connection() as store:
             return {"items": store.list_alert_previews(self.settings.synthetic_alert_source, uid, configured_stream(self.settings), limit)}
 
+    @staticmethod
+    def _project_event(store, event, profiles):
+        def profile_for(uid):
+            if uid not in profiles:
+                reader = getattr(store, "customer_profile", None)
+                profiles[uid] = reader(uid) if reader else None
+            return profiles[uid]
+
+        event = deepcopy(event)
+        clear_legacy_timeout_upgrade(event)
+        try:
+            refresh_item_priority(event, profile_for, projection=True)
+        except StorageError:
+            pass
+        return event
+
     def events(self, uid=None, stream=None, event_type=None, status=None, priority=None):
         """返回当前事件版本，支持多标签、生命周期状态和业务优先级筛选与分层排序。"""
         uid, stream = self.scope(uid, stream)
@@ -179,27 +196,10 @@ class QueryService:
             raise ValueError("事件优先级不在允许档位中")
         with self.connection() as store:
             events = store.list_events(uid, stream)
-            profile = None
-            reader = getattr(store, "customer_profile", None)
-            if reader is not None:
-                try:
-                    profile = reader(uid)
-                except StorageError:
-                    profile = None
+            profiles = {}
             items = []
             for event in events:
-                clear_legacy_timeout_upgrade(event)
-                saved_policy = (event.priority_detail or {}).get("rule_version") == ITEM_PRIORITY_RULE_VERSION
-                if event.type != ALERT_EVENT_TYPE and profile is not None and not saved_policy and event.base_priority != "待评估" and not is_locked(event, "priority"):
-                    tiered = apply_customer_tier(
-                        event.base_priority,
-                        profile.get("level"),
-                        profile.get("level_state"),
-                    )
-                    event.priority = tiered["priority"]
-                    detail = dict(event.priority_detail or {})
-                    detail.update(tiered)
-                    event.priority_detail = detail
+                event = self._project_event(store, event, profiles)
                 if event_type is not None and event.type != event_type and event_type not in (event.types or []):
                     continue
                 if status is not None and event.lifecycle_status != status:
@@ -209,7 +209,7 @@ class QueryService:
                 items.append(event.to_dict())
             items = enrich_events(store, uid, items, load_sender_roles(self.settings.data_dir),
                                   load_sender_kinds(self.settings.data_dir))
-            items.sort(key=lambda item: event_priority_sort_key(item, profile))
+            items.sort(key=lambda item: event_priority_sort_key(item, profiles.get(uid)))
         return {"items": items, "total": len(items)}
 
     def event(self, event_id, uid=None, stream=None):
@@ -228,7 +228,7 @@ class QueryService:
             event = next((e for e in store.list_events(uid, stream) if e.event_id == event_id), None)
             if event is None:
                 return None
-            clear_legacy_timeout_upgrade(event)
+            event = self._project_event(store, event, {})
             ev_dict = event.to_dict()
             if hasattr(store, "_execute"):
                 enriched_ev = enrich_events(store, uid, [ev_dict], roles, kinds)[0]
