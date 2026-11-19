@@ -582,7 +582,9 @@ test('工作台等待中已接手仍无需新消息即可越过 6、12、24 小�
   const list = page.getByRole('list', { name: '售后事件' });
   await expect(list.getByRole('listitem')).toHaveCount(3);
   await page.clock.pauseAt(start + 6 * hour);
-  await expect(page.locator('.handoff-age')).toHaveCount(0);
+  await expect(list.locator('.handoff-age.pale-yellow')).toHaveText(
+    '超 3 小时未处理',
+  );
   await page.clock.runFor(20);
   await expect(list.locator('.handoff-age.yellow')).toHaveText(
     '超 6 小时未处理',
@@ -643,4 +645,102 @@ test('详情面板正确展示可配置产品归属与强类型结构化指标�
   expect(html).toContain('TPM 额度');
   expect(html).toContain('500 万 TPM');
   expect(html).toContain('申请将 TPM 提升到 500万');
+});
+
+test('一次催办提档后，待回复标签按首条消息跨档并在有效答复后清除', async ({
+  page,
+}) => {
+  const start = Date.parse('2038-06-01T10:00:00+08:00');
+  const minute = 60_000;
+  const at = (minutes: number) =>
+    new Date(start + minutes * minute).toISOString();
+  let replied = false;
+  const reply = { started_at: at(0), latest: { message_id: 'chase' } };
+  const detail = {
+    initial_basis: {
+      impact: 'low',
+      urgency: 'normal',
+      objective_priority: 'P3',
+      base_priority: 'P3',
+      priority: 'P3',
+      impact_evidence: {
+        quote: '请问报告上传如何配置？',
+        evidence_ids: ['official_chat:ask'],
+      },
+    },
+    response_upgrade: {
+      kind: 'strong_followup',
+      occurred_at: at(8),
+      from_priority: 'P3',
+      to_priority: 'P2',
+      quote: '请负责人介入',
+      evidence_refs: [{ message_id: 'chase' }],
+    },
+  };
+  const event = () =>
+    makeEvent({
+      uid: 'synthetic-reply-customer',
+      status: '待处理',
+      lifecycle_status: '状态未明',
+      start_time: at(0),
+      end_time: at(replied ? 185 : 8),
+      priority: 'P2',
+      base_priority: 'P3',
+      priority_detail: {
+        ...detail,
+        reply_round: replied ? { ...reply, closed_at: at(185) } : reply,
+      },
+      summary: '合成报告配置问题',
+    });
+  await page.clock.install({ time: start + 10 * minute });
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const item = event();
+    await route.fulfill({
+      json: path.endsWith('/config')
+        ? {
+            customers: [
+              {
+                uid: item.uid,
+                label: '合成客户',
+                stream: item.stream,
+                event_count: 1,
+              },
+            ],
+          }
+        : path.endsWith('/events')
+          ? { items: [item], total: 1 }
+          : path.endsWith('/context')
+            ? { messages: [], evidence: [], event: item }
+            : {},
+    });
+  });
+  await page.goto('/events');
+  const row = page
+    .getByRole('list', { name: '售后事件' })
+    .getByRole('listitem');
+  await expect(row.getByText('待回复 10 分钟')).toBeVisible();
+  await page.clock.pauseAt(start + 180 * minute);
+  await expect(row.getByText('待回复 3 小时 0 分钟')).toBeVisible();
+  await page.clock.runFor(20);
+  await expect(row.locator('.handoff-age.pale-yellow')).toHaveText([
+    '超 3 小时未处理',
+    '超 3 小时未回复',
+  ]);
+  await expect(row.getByText('P2', { exact: true })).toBeVisible();
+  replied = true;
+  const refreshed = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith('/events'),
+  );
+  await page.clock.fastForward(5 * minute);
+  await refreshed;
+  await expect(row.getByText('超 3 小时未处理')).toBeVisible();
+  await expect(row.getByText(/待回复|未回复/)).toHaveCount(0);
+  const basis = page.getByRole('region', { name: '优先级依据' });
+  await expect(basis.getByText('客观 P3 → 基础 P3 → 处理 P3')).toBeVisible();
+  await expect(basis.getByText('请问报告上传如何配置？')).toBeVisible();
+  await expect(
+    basis.getByText('10:08 · P3 → P2 · 强催办', { exact: false }),
+  ).toBeVisible();
+  await expect(basis.getByText('请负责人介入')).toBeVisible();
 });

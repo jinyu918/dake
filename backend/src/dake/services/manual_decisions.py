@@ -160,6 +160,9 @@ class ManualDecisionService:
                 if reopened and (not unknown or (event.priority_detail or {}).get("handoff_wait")):
                     wait = {} if unknown else {"started_at": decided_at}
                     event.priority_detail = dict(event.priority_detail or {}, handoff_wait=wait)
+                reply_round = (event.priority_detail or {}).get("reply_round")
+                if reply_round and not reply_round.get("closed_at") and (reopened or event.lifecycle_status in TERMINAL):
+                    event.priority_detail["reply_round"] = dict(reply_round, closed_at=decided_at)
                 if clock := (event.priority_detail or {}).get("clock"):
                     if reopened or event.lifecycle_status in TERMINAL:
                         updated_clock = advance_clock(clock, start=parse_time(decided_at), reopened=reopened,

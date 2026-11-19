@@ -139,6 +139,7 @@ def _combine(candidates, old, available, new_keys):
             combined.priority_proposal = merge_priority_proposals(
                 combined.priority_proposal, candidate.priority_proposal
             )
+            combined.reply_evidence.extend(candidate.reply_evidence)
             combined.other_reason = candidate.other_reason or combined.other_reason
             if (combined.changes is None) != (candidate.changes is None):
                 raise ValueError("同一事件不能混用有变化依据和旧版摘要候选")

@@ -143,6 +143,7 @@ class Candidate:
     classification_conflicts: list[str] = field(default_factory=list)
     status_proposal: dict | None = None
     priority_proposal: dict | None = None
+    reply_evidence: list[dict] = field(default_factory=list)
 
     def label_types(self) -> list[str]:
         """返回去重后的当前标签集合；待分类返回空列表。"""

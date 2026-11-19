@@ -67,8 +67,11 @@ def xhub_identity(model: str, response_format: str, max_tokens: int, *, preview:
     model_schema = EvidenceAttributionOutput if preview else ExtractionOutput
     schema = strict_schema(model_schema.model_json_schema())
     schema_hash = hashlib.sha256(json.dumps(schema, sort_keys=True).encode()).hexdigest()
+    # 兼容原分析流的事项 ID 与处理水位，实际输出合约仍单独记录指纹。
+    stream_schema = ("9989a1d4e604ec2b7c56cf58e5025f7b438e2a1d68ca6863a4e7f7e9ce832ece" if preview
+                     else "f1b70defc3faba8545fc3dfe8f5341bce13d1a6a79c044d92d0d0c63146cc051")
     signature = hashlib.sha256(
-        f"{model}:{lineage}:{schema_hash}:{response_format}:{max_tokens}".encode()
+        f"{model}:{lineage}:{stream_schema}:{response_format}:{max_tokens}".encode()
     ).hexdigest()[:20]
     return dict(stream=f"xhub-v1-{signature}", prompt_hash=bundle_hash, schema_hash=schema_hash)
 
@@ -182,6 +185,12 @@ class XHubProvider:
                 priority=e.priority,
                 assignees=e.assignees,
             ) for e in visible]
+
+        rounds = {event.event_id: (event.priority_detail or {}).get("reply_round") for event in events}
+        for item in existing_values:
+            active_round = rounds[item["event_id"]]
+            if active_round and not active_round.get("closed_at"):
+                item["reply_round"] = {key: active_round[key] for key in ("first", "latest")}
 
         def message_value(message):
             return dict(id=message.key, send_time=message.sent_at.isoformat(),

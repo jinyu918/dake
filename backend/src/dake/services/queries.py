@@ -9,6 +9,7 @@ from ..analysis.providers.xhub import configured_stream
 from ..domain.alert_policy import ALERT_EVENT_TYPE
 from ..domain.customer_policy import customer_segment, is_super_large
 from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE, message_order, parse_time
+from ..domain.priority_history import initial_priority_basis
 from ..domain.priority_policy import PRIORITIES, clear_legacy_timeout_upgrade, event_priority_sort_key
 from ..domain.status_policy import LIFECYCLE_STATUSES, RESOLUTIONS, WAITING_REASONS
 from ..ingestion.client import validate_uid
@@ -180,6 +181,7 @@ class QueryService:
 
         event = deepcopy(event)
         clear_legacy_timeout_upgrade(event)
+        event.priority_detail = dict(event.priority_detail or {}, initial_basis=initial_priority_basis(event))
         try:
             refresh_item_priority(event, profile_for, projection=True)
         except StorageError:

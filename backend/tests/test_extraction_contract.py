@@ -6,7 +6,7 @@ import json
 import httpx
 import pytest
 
-from dake.analysis.contract import ContractError, EvidenceExtractionOutput, parse_output
+from dake.analysis.contract import ContractError, EvidenceExtractionOutput, ExtractionOutput, parse_output
 from dake.analysis.validation import evidence_map, validate_priority_evidence
 from dake.analysis.providers.xhub import XHubConfig, XHubError, XHubProvider
 from dake.config import Settings
@@ -150,8 +150,9 @@ def test_invalid_model_result_rolls_back_message_processing(tmp_path):
         client.close()
 
 
+@pytest.mark.parametrize("output_model", [ExtractionOutput, EvidenceExtractionOutput])
 @pytest.mark.parametrize("matching_quotes", [True, False])
-def test_priority_preview_checks_each_message_at_parse_and_write(matching_quotes):
+def test_priority_evidence_checks_each_message_at_parse_and_write(matching_quotes, output_model):
     quote = "请负责人介入处理合成下载问题"
     first = message(text=quote)
     second = message("m2", text=f"再次催办，{quote}" if matching_quotes else "已收到进展")
@@ -159,18 +160,16 @@ def test_priority_preview_checks_each_message_at_parse_and_write(matching_quotes
     proposal = dict(impact="unknown", urgency="unknown", reason="重复催办", evidence_ids=[first.key],
                     quote=quote, strong_followup=dict(evidence_ids=refs, quote=quote))
     raw = output(candidate(evidence_ids=refs, priority_proposal=proposal))
-    with pytest.raises(ContractError):
-        parse_output(raw, [first, second], [], [])
     if not matching_quotes:
         with pytest.raises(ContractError, match="strong_followup"):
-            parse_output(raw, [first, second], [], [], output_model=EvidenceExtractionOutput)
+            parse_output(raw, [first, second], [], [], output_model=output_model)
         valid_second = replace(second, content=quote)
-        parsed, = parse_output(raw, [first, valid_second], [], [], output_model=EvidenceExtractionOutput)
+        parsed, = parse_output(raw, [first, valid_second], [], [], output_model=output_model)
         with pytest.raises(ValueError, match="优先级维度证据"):
             validate_priority_evidence(parsed, evidence_map([first, second]), uid=UID,
                                        human_keys=set(refs), customer_keys=set(refs))
         return
-    parsed, = parse_output(raw, [first, second], [], [], output_model=EvidenceExtractionOutput)
+    parsed, = parse_output(raw, [first, second], [], [], output_model=output_model)
     validate_priority_evidence(parsed, evidence_map([first, second]), uid=UID,
                                human_keys=set(refs), customer_keys=set(refs))
     assert parsed.priority_proposal["strong_followup"]["evidence_ids"] == refs

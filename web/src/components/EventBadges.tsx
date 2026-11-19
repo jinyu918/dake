@@ -64,11 +64,13 @@ export function compareEventsByPriority(
       profile?.level || detail?.customer_level,
       profile?.level_state || detail?.level_state,
     );
-    const response = detail?.escalated_emotion
-      ? 0
-      : detail?.strong_followup
-        ? 1
-        : 2;
+    const upgradeKind = detail?.response_upgrade?.kind;
+    let response = 2;
+    if (upgradeKind === 'escalated_emotion' || detail?.escalated_emotion) {
+      response = 0;
+    } else if (upgradeKind === 'strong_followup' || detail?.strong_followup) {
+      response = 1;
+    }
     return [ended, rank, -level, response, due];
   }
   const leftKeys = keys(left);

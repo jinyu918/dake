@@ -475,15 +475,104 @@ def test_same_window_keeps_independent_impact_and_customer_response(tmp_path, mo
     source.messages += [impact, emotion]
     for msg, proposal in [(impact, objective), (emotion, response)]:
         item = candidate(msg, "update", event_id, [old], priority_proposal=proposal)
+        if msg == emotion:
+            item.reply_evidence = [dict(kind="question", message_id=msg.key, quote=msg.content)]
         provider.mapping[msg.message_id] = item if explicit else replace(item, decision=None)
     assert service.run_window(UID, window(2)).updated == [event_id]
     saved = store.events[event_id]
     assert (saved.base_priority, saved.priority_detail["customer_priority"], saved.priority) == ("P2", "P2", "P1")
-    for field, message_ref in [("impact_evidence", impact), ("escalated_emotion", emotion)]:
-        ref, = saved.priority_detail[field]["evidence_refs"]
-        assert (ref["message_id"], ref["digest"], ref["uid"], ref["sender_id"]) == (
-            message_ref.message_id, message_ref.digest, UID, message_ref.sender_id,
-        )
+    impact_ref, = saved.priority_detail["impact_evidence"]["evidence_refs"]
+    assert (impact_ref["message_id"], impact_ref["digest"], impact_ref["uid"]) == (impact.message_id, impact.digest, UID)
+    upgrade = saved.priority_detail["response_upgrade"]
+    emotion_ref, = upgrade["evidence_refs"]
+    assert (upgrade["kind"], upgrade["from_priority"], upgrade["to_priority"]) == ("escalated_emotion", "P2", "P1")
+    assert (emotion_ref["message_id"], emotion_ref["digest"]) == (emotion.message_id, emotion.digest)
+
+
+def test_initial_priority_basis_preserves_effective_l9_and_recovers_oldest_snapshot(tmp_path):
+    from dake.domain.priority_history import initial_priority_basis
+    from dake.services.item_priority import refresh_item_priority
+
+    ask = message("ask", 1, "请问合成报告上传如何配置？")
+    proposal = dict(impact="low", urgency="normal", reason="常规配置咨询", **_priority_quote(ask),
+                    impact_evidence=_priority_quote(ask))
+    service, store, _, _ = build(tmp_path, [ask], {ask.message_id: candidate(ask, priority_proposal=proposal)})
+    store.customer_profile = lambda _: dict(level="L9", level_state="fresh")
+    event_id, = service.run_window(UID, window(1)).created
+    event = store.events[event_id]
+    basis = initial_priority_basis(event)
+    assert (basis["objective_priority"], basis["base_priority"], basis["priority"]) == ("P3", "P2", "P1")
+    assert basis["customer_level"] == "L9"
+    assert basis["impact_evidence"]["evidence_refs"][0]["digest"] == ask.digest
+    assert refresh_item_priority(event, lambda _: dict(level="L6", level_state="fresh"))
+    assert initial_priority_basis(event) == basis
+    event.priority_detail.pop("initial_basis")
+    for revision in event.updated_by:
+        revision["snapshot"]["priority_detail"].pop("initial_basis")
+    assert initial_priority_basis(event) == basis
+    event.updated_by = []
+    assert initial_priority_basis(event) is None
+
+
+def test_pending_reply_and_upgrade_survive_answer_and_new_round(tmp_path, monkeypatch):
+    start = window(1).start + timedelta(hours=10)
+    ask = message("ask", 1, "请问合成报告上传如何配置？", sent_at=start, sender_id="customer")
+    chase = replace(ask, message_id="chase", sent_at=start + timedelta(minutes=8), content="请负责人介入")
+    unrelated = replace(ask, message_id="other", sent_at=start + timedelta(minutes=20), sender_id="staff",
+                        content="另一工单请上传测试附件")
+    bot = replace(ask, message_id="bot", sent_at=start + timedelta(hours=2), sender_id="bot", content="收到告警")
+    answer = replace(ask, message_id="answer", sent_at=start + timedelta(hours=3, minutes=5), sender_id="staff",
+                     content="当前事项请打开报告设置并启用上传")
+    again = replace(ask, message_id="again", sent_at=start + timedelta(hours=3, minutes=6),
+                    content="等得实在受不了了，请马上答复")
+
+    def reply(msg, kind="question"):
+        return [dict(kind=kind, message_id=msg.key, quote=msg.content)]
+
+    objective = dict(impact="low", urgency="normal", reason="常规配置咨询", **_priority_quote(ask),
+                     impact_evidence=_priority_quote(ask))
+    service, store, provider, source = build(tmp_path, [ask], {ask.message_id: candidate(
+        ask, priority_proposal=objective, reply_evidence=reply(ask))})
+    monkeypatch.setattr("dake.services.processing.load_sender_roles", lambda _: {
+        (UID, ask.source, "customer"): "customer", (UID, ask.source, "staff"): "internal",
+    })
+
+    def run(msg):
+        return service.run_window(UID, Window(msg.sent_at, msg.sent_at + timedelta(minutes=1)))
+
+    event_id, = run(ask).created
+    initial = store.events[event_id].priority_detail["initial_basis"]
+    assert initial["objective_priority"] == initial["base_priority"] == initial["priority"] == "P3"
+    assert initial["impact_evidence"]["evidence_refs"][0]["message_id"] == "ask"
+
+    def apply(msg, **fields):
+        source.messages.append(msg)
+        provider.mapping[msg.message_id] = candidate(msg, "update", event_id, [ask], **fields)
+        assert run(msg).updated == [event_id]
+        return store.events[event_id]
+
+    upgraded = apply(chase, reply_evidence=reply(chase), priority_proposal=dict(
+        impact="unknown", urgency="unknown", reason="强催办", **_priority_quote(chase),
+        strong_followup=_priority_quote(chase)))
+    assert upgraded.priority == "P2"
+    saved = upgraded.priority_detail["response_upgrade"]
+    assert (saved["from_priority"], saved["to_priority"], saved["occurred_at"], saved["quote"]) == (
+        "P3", "P2", chase.sent_at.isoformat(), chase.content)
+    waiting = upgraded.priority_detail["reply_round"]
+    assert waiting["started_at"] == start.isoformat() and waiting["latest"]["message_id"] == "chase"
+    assert not run(chase).updated
+    assert apply(unrelated).priority_detail["reply_round"] == waiting
+    assert apply(bot, reply_evidence=reply(bot, "answer")).priority_detail["reply_round"] == waiting
+    replied = apply(answer, reply_evidence=reply(answer, "answer"), changes=[])
+    assert replied.priority_detail["reply_round"]["closed_at"] == answer.sent_at.isoformat()
+    reopened = apply(again, reply_evidence=reply(again), priority_proposal=dict(
+        impact="unknown", urgency="unknown", reason="明显情绪升级", **_priority_quote(again),
+        escalated_emotion=_priority_quote(again)))
+    assert reopened.priority == "P2"
+    assert reopened.priority_detail["response_upgrade"] == saved
+    assert reopened.priority_detail["initial_basis"] == initial
+    assert reopened.priority_detail["reply_round"]["started_at"] == again.sent_at.isoformat()
+    assert "closed_at" not in reopened.priority_detail["reply_round"]
 
 
 @pytest.mark.parametrize("case", ["internal", "unverified", "bot", "foreign_uid", "unrelated", "invented", "plain", "emoji"])

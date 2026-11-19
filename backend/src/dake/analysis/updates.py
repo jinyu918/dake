@@ -15,7 +15,11 @@ from ..domain.manual_controls import (
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
 from ..domain.item_clock import TERMINAL, advance_clock
-from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, clear_legacy_timeout_upgrade, effective_priority_profile, evaluate_priority_proposal, merge_affected_customers
+from ..domain.priority_policy import (
+    PRIORITY_EVIDENCE_FIELDS, PRIORITY_RANKS, clear_legacy_timeout_upgrade, effective_priority_profile,
+    evaluate_priority_proposal, merge_affected_customers, response_priority,
+)
+from ..domain.priority_history import initial_priority_basis, update_reply_round
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
 from .summary_changes import explicitly_corrects_typed_attribute, prepare_summary, restrict_fields
@@ -174,6 +178,7 @@ def has_structured_change(candidate, event, available=None, *, customer_profile=
         or candidate.classification_conflicts
         or candidate.status_proposal is not None
         or candidate.priority_proposal is not None
+        or candidate.reply_evidence
         or priority_refresh
     )
 
@@ -202,6 +207,7 @@ def _collect_supporting_keys(candidate, changes, available=None) -> set[str]:
             raw.update(fact["evidence_ids"])
     for fact in (candidate.priority_proposal or {}).get("affected_customers", []):
         raw.update(fact["evidence_ids"])
+    raw.update(fact["message_id"] for fact in candidate.reply_evidence)
     if available is None:
         return raw
     return {available[key].key if key in available else key for key in raw}
@@ -498,19 +504,23 @@ def apply_candidate(
 
     old_detail = event.priority_detail or {}
     old_clock = old_detail.get("clock")
+    initial_basis = None if created else initial_priority_basis(event)
+    priority_before = event.priority
     old_impacts = old_detail.get("affected_customers", [])
     new_impacts = (candidate.priority_proposal or {}).get("affected_customers", [])
     impacts = merge_affected_customers(old_impacts, new_impacts)
-    priority_profile = customer_profile
+    effective_uid, priority_profile = uid, customer_profile
     if impacts and profile_reader is not None:
-        _, priority_profile = effective_priority_profile(uid, impacts, profile_reader)
+        effective_uid, priority_profile = effective_priority_profile(uid, impacts, profile_reader)
     if (candidate.priority_proposal is not None or event.base_priority == "P0"
             or (priority_profile is not None and event.base_priority != "待评估")):
         pp = candidate.priority_proposal
+        objective_proposal = ({key: value for key, value in pp.items() if key not in PRIORITY_EVIDENCE_FIELDS[2:]}
+                              if pp is not None else None)
         pp_keys = [key for key in (pp or {}).get("evidence_ids", []) if key in available]
         pp_late = bool(not created and old_end_time is not None and pp_keys and max(available[k].sent_at for k in pp_keys) < old_end_time)
         prio_eval = evaluate_priority_proposal(
-            pp,
+            objective_proposal,
             current_priority=event.priority,
             current_base_priority=event.base_priority,
             current_detail=event.priority_detail,
@@ -572,6 +582,28 @@ def apply_candidate(
     if wait or (reopened and old_detail.get("handoff_wait")):
         event.priority_detail = dict(event.priority_detail or {}, handoff_wait=wait)
     clear_legacy_timeout_upgrade(event)
+
+    detail = dict(event.priority_detail or {}, initial_basis=initial_basis)
+    if created:
+        initial_basis = initial_priority_basis(event, current=True)
+        if initial_basis is not None:
+            initial_basis["effective_customer_uid"] = effective_uid
+        detail["initial_basis"] = initial_basis
+    reply_round, trigger = update_reply_round(
+        old_detail.get("reply_round"), candidate, available, new_keys,
+        lambda message: confirmed_sender_role(message.to_dict(), sender_roles), uid,
+        terminal=event.lifecycle_status in TERMINAL,
+    )
+    if reply_round is not None:
+        detail["reply_round"] = reply_round
+    if trigger and not old_detail.get("response_upgrade") and not is_locked(event, "priority"):
+        suggested = response_priority(event.priority, {trigger["kind"]: True})
+        before = event.priority if created else priority_before
+        if PRIORITY_RANKS[suggested] < min(PRIORITY_RANKS[event.priority], PRIORITY_RANKS[before]):
+            detail["response_upgrade"] = dict(trigger, from_priority=event.priority, to_priority=suggested)
+            detail.update(priority=suggested, pre_timer_priority=suggested)
+            event.priority = event.severity = suggested
+    event.priority_detail = detail
 
     if (settings.priority_preview and settings.priority_calendar is not None) or old_clock:
         timed_facts = sorted(((max(available[key].sent_at for key in fact["evidence_ids"]), fact)

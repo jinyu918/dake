@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 
 const HOUR = 3600000;
+const MINUTE = 60000;
 const thresholds = [
+  { hours: 3, tone: 'pale-yellow' },
   { hours: 6, tone: 'yellow' },
   { hours: 12, tone: 'orange' },
   { hours: 24, tone: 'red' },
@@ -108,8 +110,7 @@ function waitStart(event: HandoffEvent): number {
   return Date.parse(startedAt || (status === '待处理' ? event.start_time : ''));
 }
 
-export function HandoffAgeBadge({ event }: { event: HandoffEvent }) {
-  const start = waitStart(event);
+function AgeBadge({ start, kind }: { start: number; kind: '处理' | '回复' }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!Number.isFinite(start)) return;
@@ -120,22 +121,55 @@ export function HandoffAgeBadge({ event }: { event: HandoffEvent }) {
       const next = thresholds.find(
         ({ hours }) => current <= start + hours * HOUR,
       );
-      if (next) {
-        timer = window.setTimeout(
-          update,
-          Math.min(2147483647, start + next.hours * HOUR - current + 1),
-        );
-      }
+      if (!next) return;
+      const crossing = start + next.hours * HOUR - current + 1;
+      const minute = MINUTE - (Math.max(0, current - start) % MINUTE);
+      timer = window.setTimeout(
+        update,
+        kind === '回复' && next.hours === 3
+          ? Math.min(crossing, minute)
+          : Math.min(2147483647, crossing),
+      );
     }
     update();
     return () => window.clearTimeout(timer);
-  }, [start]);
-  const band = thresholds
-    .filter(({ hours }) => now - start > hours * HOUR)
-    .at(-1);
-  return band ? (
-    <span className={`handoff-age ${band.tone}`}>
-      超 {band.hours} 小时未处理
+  }, [start, kind]);
+
+  if (!Number.isFinite(start)) return null;
+  const elapsed = Math.max(0, now - start);
+  const band = thresholds.filter(({ hours }) => elapsed > hours * HOUR).at(-1);
+  if (band) {
+    return (
+      <span className={`handoff-age ${band.tone}`}>
+        超 {band.hours} 小时未{kind}
+      </span>
+    );
+  }
+  if (kind === '处理') return null;
+  const minutes = Math.floor(elapsed / MINUTE);
+  const hours = Math.floor(minutes / 60);
+  return (
+    <span className="handoff-age">
+      待回复 {hours ? `${hours} 小时 ` : ''}
+      {minutes % 60} 分钟
     </span>
-  ) : null;
+  );
+}
+
+export function HandoffAgeBadge({ event }: { event: HandoffEvent }) {
+  const reply = event.priority_detail?.reply_round;
+  const activeReply =
+    reply &&
+    !reply.closed_at &&
+    !event.closed_at &&
+    event.lifecycle_status !== '已解决' &&
+    event.lifecycle_status !== '已取消';
+  return (
+    <>
+      <AgeBadge start={waitStart(event)} kind="处理" />
+      {activeReply && (
+        <AgeBadge start={Date.parse(reply.started_at)} kind="回复" />
+      )}
+    </>
+  );
 }

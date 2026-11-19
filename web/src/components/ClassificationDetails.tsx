@@ -1,6 +1,13 @@
 import { formatMetricNumber, productDisplayName } from '@/lib/productLabels';
 import { formatTime } from '@/lib/utils';
+import { evidenceKey } from '@/pages/events/revisionEvidence';
 import { priorityClock } from './EventBadges';
+
+type EvidenceRef = Pick<
+  API.EvidenceResponse,
+  'message_id' | 'source' | 'digest'
+>;
+type ResolveEvidence = (mid: string, ref?: EvidenceRef) => string | undefined;
 
 type FactRecord = {
   value?: unknown;
@@ -43,28 +50,128 @@ function messageRefIds(fact: FactRecord): string[] {
   ];
 }
 
-export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
-  const priority = event.priority_detail;
+function PriorityEvidence({
+  fact,
+  resolve,
+  onLocate,
+}: {
+  fact: FactRecord;
+  resolve?: ResolveEvidence;
+  onLocate?: (key: string) => void;
+}) {
+  if (!fact) return null;
+  const refs: EvidenceRef[] = Array.isArray(fact.evidence_refs)
+    ? fact.evidence_refs
+    : [];
+  return (
+    <div>
+      {typeof fact.quote === 'string' && <blockquote>{fact.quote}</blockquote>}
+      {messageRefIds(fact).map((mid) => {
+        const key = resolve?.(
+          mid,
+          refs.find((ref) => ref?.message_id === mid),
+        );
+        return key && onLocate ? (
+          <button
+            key={mid}
+            type="button"
+            className="evidence-locate"
+            onClick={() => onLocate(key)}
+          >
+            消息 {mid}
+          </button>
+        ) : (
+          <small key={mid}>消息 {mid}</small>
+        );
+      })}
+    </div>
+  );
+}
+
+const impactLabels: Record<string, string> = {
+  critical: '重大事故',
+  high: '核心业务受阻',
+  medium: '局部业务受影响',
+  low: '常规事项',
+  unknown: '未确认',
+};
+const urgencyLabels: Record<string, string> = {
+  immediate: '紧急',
+  soon: '近期',
+  normal: '常规',
+  unknown: '未确认',
+};
+
+export function ItemPriorityDetails({
+  event,
+  resolve,
+  onLocate,
+}: {
+  event: API.EventResponse;
+  resolve?: ResolveEvidence;
+  onLocate?: (key: string) => void;
+}) {
+  if (event.type === '机器人告警') return null;
+  const priority = event.priority_detail ?? {};
+  const initial = priority.initial_basis;
+  const upgrade = priority.response_upgrade;
   const clock = priorityClock(priority);
-  const affected = Array.isArray(priority?.affected_customers)
+  const affected = Array.isArray(priority.affected_customers)
     ? priority.affected_customers
     : [];
-  if (priority?.rule_version !== 'item-priority-v1') return null;
   return (
-    <section aria-label="事项定级与证据" className="classification-note">
-      <h3>事项定级与证据</h3>
-      <p>
-        客观档 {String(priority.objective_priority ?? event.base_priority)} ·
-        基础档 {event.base_priority} · 客户提档后{' '}
-        {String(priority.customer_priority ?? '待评估')} · 自动建议{' '}
-        {String(priority.pre_timer_priority ?? '待评估')} · 生效{' '}
-        {event.priority}
-      </p>
+    <section aria-label="优先级依据" className="classification-note">
+      <h3>优先级依据</h3>
+      {initial ? (
+        <div>
+          <strong>首次定级</strong>
+          <p>
+            客观 {initial.objective_priority} →{' '}
+            {['L9', 'L10'].includes(initial.customer_level) ? '超大客' : ''}基础{' '}
+            {initial.base_priority} → 处理 {initial.priority}
+          </p>
+          <p>有效客户等级 {initial.customer_level ?? '待确认'}</p>
+          {initial.reason && <p>{initial.reason}</p>}
+          <p>业务影响 · {impactLabels[initial.impact]}</p>
+          <PriorityEvidence
+            fact={
+              initial.impact_evidence ?? {
+                evidence_refs: initial.evidence_refs,
+                quote: initial.evidence_refs?.[0]?.quote,
+              }
+            }
+            resolve={resolve}
+            onLocate={onLocate}
+          />
+          <p>客观时限 · {urgencyLabels[initial.urgency]}</p>
+          {initial.urgency_evidence && (
+            <PriorityEvidence
+              fact={initial.urgency_evidence}
+              resolve={resolve}
+              onLocate={onLocate}
+            />
+          )}
+        </div>
+      ) : (
+        <p>首次定级依据未留存</p>
+      )}
+      {upgrade && (
+        <div>
+          <strong>
+            {formatTime(upgrade.occurred_at)} · {upgrade.from_priority} →{' '}
+            {upgrade.to_priority} ·{' '}
+            {upgrade.kind === 'strong_followup' ? '强催办' : '明显情绪升级'}
+          </strong>
+          <PriorityEvidence
+            fact={upgrade}
+            resolve={resolve}
+            onLocate={onLocate}
+          />
+        </div>
+      )}
       {event.manual_controls?.priority?.locked ? (
         <p>当前自动建议 {String(priority.pre_timer_priority || '待评估')}</p>
       ) : null}
-      {priority.escalated_emotion ? <p>客户情绪明显升级</p> : null}
-      {priority.strong_followup ? <p>客户强催办</p> : null}
       {priority.review_required ? <p>业务影响待复核</p> : null}
       {typeof priority.effective_customer_uid === 'string' ? (
         <p>
@@ -72,23 +179,24 @@ export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
           {String(priority.customer_level ?? '等级待确认')}
         </p>
       ) : null}
-      {clock.phase === 'stopped' ? (
-        <p>计时已结束</p>
-      ) : (
-        <p>
-          {clock.phase === 'progress'
-            ? '待进展'
-            : clock.phase === 'handoff'
-              ? '待接手'
-              : '计时起点待核实'}
-          {typeof clock.deadline === 'string' && !clock.paused_at
-            ? ` · 截止 ${formatTime(clock.deadline)}`
-            : ''}
-          {typeof clock.review_at === 'string' && clock.paused_at
-            ? ` · 暂停至复查 ${formatTime(clock.review_at)}`
-            : ''}
-        </p>
-      )}
+      {clock.phase &&
+        (clock.phase === 'stopped' ? (
+          <p>计时已结束</p>
+        ) : (
+          <p>
+            {clock.phase === 'progress'
+              ? '待进展'
+              : clock.phase === 'handoff'
+                ? '待接手'
+                : '计时起点待核实'}
+            {typeof clock.deadline === 'string' && !clock.paused_at
+              ? ` · 截止 ${formatTime(clock.deadline)}`
+              : ''}
+            {typeof clock.review_at === 'string' && clock.paused_at
+              ? ` · 暂停至复查 ${formatTime(clock.review_at)}`
+              : ''}
+          </p>
+        ))}
       {affected.map((raw) => {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
         const fact = raw as Record<string, unknown>;
@@ -125,8 +233,7 @@ export function ClassificationDetails({
   const structuredEvidence = (event.structured_evidence ||
     []) as StructuredEvidenceRecord[];
 
-  const hasPriority =
-    event.priority_detail?.rule_version === 'item-priority-v1';
+  const hasPriority = event.type !== '机器人告警';
   const hasTypeEvidence = Object.keys(typeEvidence).length > 0;
   const hasRemoved = Object.keys(removedTypes).length > 0;
   const hasOtherReason = Boolean(
@@ -146,12 +253,19 @@ export function ClassificationDetails({
     return null;
   }
 
+  function resolveEvidence(mid: string, ref?: EvidenceRef) {
+    const matched = evidence.find(
+      (item) =>
+        item.message_id === mid &&
+        (!ref?.source || item.source === ref.source) &&
+        (!ref?.digest || item.digest === ref.digest),
+    );
+    return matched && evidenceKey(matched);
+  }
+
   function locateByMessageId(mid: string) {
-    if (!onLocate) return;
-    const matched = evidence.find((item) => item.message_id === mid);
-    if (!matched) return;
-    const key = `${matched.source}:${matched.message_id}:${matched.digest || ''}`;
-    onLocate(key);
+    const key = resolveEvidence(mid);
+    if (key) onLocate?.(key);
   }
 
   return (
@@ -161,7 +275,11 @@ export function ClassificationDetails({
         hasProducts || hasStructured ? '产品与结构化属性' : '事项分类与定级'
       }
     >
-      <ItemPriorityDetails event={event} />
+      <ItemPriorityDetails
+        event={event}
+        resolve={resolveEvidence}
+        onLocate={onLocate}
+      />
       {hasProducts || hasStructured ? <h3>产品与结构化属性</h3> : null}
 
       {hasProducts || hasStructured ? (

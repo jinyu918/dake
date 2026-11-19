@@ -162,6 +162,8 @@ def merge_affected_customers(previous: list[dict], incoming: list[dict]) -> list
 
 
 def response_priority(customer_priority: str, signals: dict) -> str:
+    if upgrade := signals.get("response_upgrade"):
+        return min(customer_priority, upgrade["to_priority"], key=PRIORITY_RANKS.__getitem__)
     if signals.get("escalated_emotion") and customer_priority != "P0":
         return "P1"
     if signals.get("strong_followup") and customer_priority == "P3":
@@ -242,11 +244,12 @@ def evaluate_priority_proposal(
     tiered = apply_customer_tier(base, level, level_state)
     customer_priority = tiered["priority"]
     signals = {field: deepcopy(proposal[field]) for field in PRIORITY_EVIDENCE_FIELDS[2:] if proposal.get(field)}
-    pre_timer_priority = response_priority(customer_priority, signals)
+    pre_timer_priority = response_priority(customer_priority, {**signals, "response_upgrade": previous.get("response_upgrade")})
     detail = dict(
         **tiered,
         **objective,
         **signals,
+        **{key: previous[key] for key in ("response_upgrade", "reply_round", "initial_basis") if key in previous},
         source="automatic",
         customer_priority=customer_priority,
         pre_timer_priority=pre_timer_priority,
@@ -281,7 +284,12 @@ def event_priority_sort_key(event: dict, customer_profile: dict | None = None) -
         due = datetime.fromisoformat(deadline).timestamp() if deadline else float("inf")
     except (TypeError, ValueError):
         due = float("inf")
-    response = 0 if detail.get("escalated_emotion") else 1 if detail.get("strong_followup") else 2
+    upgrade_kind = (detail.get("response_upgrade") or {}).get("kind")
+    response = 2
+    if upgrade_kind == "escalated_emotion" or detail.get("escalated_emotion"):
+        response = 0
+    elif upgrade_kind == "strong_followup" or detail.get("strong_followup"):
+        response = 1
     review = 0 if detail.get("review_required") else 1
     if rank == PRIORITY_RANKS["待评估"]:
         return (ended, rank, review, due, event.get("event_id", ""))

@@ -116,6 +116,16 @@ class PriorityEvidence(StrictObject):
     quote: str = Field(min_length=1)
 
 
+class FollowupEvidence(PriorityEvidence):
+    previous_message_id: str | None = None
+
+
+class ReplyEvidence(StrictObject):
+    kind: Literal["question", "answer"]
+    message_id: str = Field(min_length=1)
+    quote: str = Field(min_length=1)
+
+
 class PriorityProposal(StrictObject):
     """客观业务影响与时间紧迫度信号提案；客户等级加权由后端独立计算。"""
 
@@ -124,6 +134,10 @@ class PriorityProposal(StrictObject):
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
     quote: str = Field(min_length=1)
+    impact_evidence: PriorityEvidence | None = None
+    urgency_evidence: PriorityEvidence | None = None
+    escalated_emotion: PriorityEvidence | None = None
+    strong_followup: FollowupEvidence | None = None
 
 
 class AffectedCustomerEvidence(PriorityEvidence):
@@ -141,10 +155,6 @@ class ClockEvidence(PriorityEvidence):
 
 
 class EvidencePriorityProposal(PriorityProposal):
-    impact_evidence: PriorityEvidence | None = None
-    urgency_evidence: PriorityEvidence | None = None
-    escalated_emotion: PriorityEvidence | None = None
-    strong_followup: PriorityEvidence | None = None
     affected_customers: list[AffectedCustomerEvidence] = Field(default_factory=list, max_length=20)
     clock_evidence: list[ClockEvidence] = Field(default_factory=list, max_length=20)
 
@@ -171,6 +181,7 @@ class ExtractedCandidate(StrictObject):
     other_reason: Fact | None = None
     status_proposal: StatusProposal | None = None
     priority_proposal: PriorityProposal | None = None
+    reply_evidence: list[ReplyEvidence] = Field(default_factory=list, max_length=20)
 
 
 class ExtractionOutput(StrictObject):
@@ -223,6 +234,7 @@ def parse_output(
     uids = {message.uid for message in messages.values()}
     if len(uids) != 1 or any(event.uid not in uids for event in existing_events):
         raise ContractError("清洗输入必须属于同一客户")
+    new_keys = {message.key for message in new_messages}
     old = {event.event_id: event for event in existing_events}
     candidates = []
     for candidate_index, item in enumerate(output.candidates):
@@ -321,6 +333,11 @@ def parse_output(
             ):
                 errors.append(f"candidates[{candidate_index}].{path}：字段值必须来自引文或明确认领者标识")
 
+        for fact in item.reply_evidence:
+            if (item.decision in {"duplicate", "review"} or fact.message_id not in ids or fact.message_id not in new_keys
+                    or not priority_quote_matches(fact.quote, [messages[fact.message_id]])):
+                errors.append(f"candidates[{candidate_index}].reply_evidence：待回复依据须引用本轮候选消息的原文")
+
         for path, proposal in quote_only_items:
             dedup_refs = list(dict.fromkeys(proposal.evidence_ids))
             proposal.evidence_ids = dedup_refs
@@ -411,7 +428,8 @@ def parse_output(
 
         proposal = item.priority_proposal
         priority_proposal = proposal.model_dump(exclude_none=True) if proposal else None
-        if proposal and proposal.impact == "critical" and not isinstance(proposal, EvidencePriorityProposal):
+        if (proposal and proposal.impact == "critical" and proposal.impact_evidence is None
+                and not isinstance(proposal, EvidencePriorityProposal)):
             priority_proposal["impact_evidence"] = dict(evidence_ids=proposal.evidence_ids, quote=proposal.quote)
 
         candidate = Candidate(
@@ -440,6 +458,7 @@ def parse_output(
             typed_attributes=typed_attributes,
             status_proposal=item.status_proposal.model_dump() if item.status_proposal else None,
             priority_proposal=priority_proposal,
+            reply_evidence=[fact.model_dump() for fact in item.reply_evidence],
         )
         candidates.append(candidate)
     try:

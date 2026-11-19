@@ -56,6 +56,7 @@ def merge_batch(candidates: list[Candidate], available: dict, match_window, new_
                 item.types = [label for label in item.types if label not in item.removed_types]
             item.status_proposal = item.status_proposal or old.status_proposal
             item.priority_proposal = merge_priority_proposals(old.priority_proposal, item.priority_proposal)
+            item.reply_evidence = [*old.reply_evidence, *item.reply_evidence]
             item.other_reason = item.other_reason or old.other_reason
             item.referenced_event_id = item.referenced_event_id or old.referenced_event_id
             item.ambiguous = item.ambiguous or old.ambiguous
