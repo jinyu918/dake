@@ -84,6 +84,9 @@ class MemoryRuns:
     def progress_rows(self, run_ids, *, include_cycles=False):
         return {rid: deepcopy(self.items[rid]) for rid in run_ids if rid in self.items}
 
+    def working_ids(self, run_ids):
+        return {rid for rid in run_ids if self.items[rid]["status"] == "running"}
+
     def create(self, request, total, run_id=None):
         if run_id in self.items:
             return self.get(run_id)
@@ -140,6 +143,63 @@ def sync_done(service, eid):
     service.runs.finish(execution["state"]["sync_run_id"])
     service.tick(force=True)
     return service.tasks.execution(eid)
+
+
+def test_waiting_and_working_match_the_worker_in_detail_and_list(service):
+    task = service.create(config())
+    service.action(task["task_id"], "run")
+    eid = next(iter(service.tasks.history))
+    execution = sync_done(service, eid)
+    child = next(c for c in execution["state"]["children"] if c.get("run_id"))
+    child["status"] = "running"
+    previous = service.progress(execution)
+    assert previous["status"] == "queued" and previous["capacity_used"] == 0
+    assert previous["phases"]["analysis"] == "idle"
+    assert next(c for c in previous["customers"] if c["uid"] == child["uid"])["status"] == "queued"
+    service.runs.items[child["run_id"]]["status"] = "running"
+    service.tick(force=True)
+    execution = service.tasks.execution(eid)
+    working = service.progress(execution)
+    assert execution["status"] == working["status"] == "running"
+    assert working["capacity_used"] == 1 and working["phases"]["analysis"] == "running"
+
+
+def test_caught_up_customer_continues_after_automatic_horizon_extends(service):
+    task = service.create(dict(config(), mode="automatic", end=None))
+    service.action(task["task_id"], "resume")
+    service.tick(force=True)
+    eid = next(iter(service.tasks.history))
+    execution = sync_done(service, eid)
+    state = execution["state"]
+    child = next(c for c in state["children"] if c.get("run_id"))
+    service.runs.finish(child["run_id"])
+    child.update(status="succeeded", run_id=None, cursor=state["end"])
+    old_end = state["end"]
+    service.clock = lambda: NOW + timedelta(minutes=15)
+    service._extend_horizon(state, state["config"])
+    state["published_until"] = state["end"]
+    service._drain(execution)
+    next_run = service.runs.get(child["run_id"])
+    assert next_run["request"]["start"] == old_end
+    assert next_run["request"]["end"] == state["end"]
+
+
+def test_outdated_policy_finishes_round_without_blocking_next_round(service):
+    task = service.create(config())
+    service.action(task["task_id"], "run")
+    eid = next(iter(service.tasks.history))
+    execution = sync_done(service, eid)
+    state = execution["state"]
+    for run in list(service.runs.items.values()):
+        if run["status"] == "queued":
+            service.runs.finish(run["run_id"], error=None if run["request"]["mode"] == "customer_sync"
+                                else "增量归属策略已变化，请重新提交任务")
+    service.tick(force=True)
+    execution = service.tasks.execution(eid)
+    assert execution["status"] == "partial"
+    assert "分析规则已更新" in execution["state"]["error"]
+    assert not execution["state"]["blocked_customers"]
+    assert service.launch(task)["state"]["customer_cursors"] == execution["state"]["customer_cursors"]
 
 
 def test_save_does_not_launch_and_preview_matches_exact_rule(service):

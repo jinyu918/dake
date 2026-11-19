@@ -150,6 +150,10 @@ class MySQLStore:
         if self._transaction_uid != uid:
             raise StorageError("写入必须位于对应客户的 transaction(uid) 中")
 
+    def customer_lock_name(self, uid: str) -> str:
+        """客户写入与中断核实共用同一把数据库锁。"""
+        return "dake:" + hashlib.sha256(f"{self.database}\0{uid}".encode()).hexdigest()[:59]
+
     @contextmanager
     def customer_lock(self, uid: str) -> Iterator["MySQLStore"]:
         """执行记录预检与业务事务共用客户锁，内层同客户调用不重复获取。"""
@@ -160,7 +164,7 @@ class MySQLStore:
                 raise StorageError("不能在客户锁内切换客户")
             yield self
             return
-        lock_name = "dake:" + hashlib.sha256(f"{self.database}\0{uid}".encode()).hexdigest()[:59]
+        lock_name = self.customer_lock_name(uid)
         rows, _ = self._execute("SELECT GET_LOCK(%s, 10) AS acquired", (lock_name,))
         if not rows or rows[0]["acquired"] != 1:
             raise StorageError("该客户正在处理中，请稍后重试")

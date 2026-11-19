@@ -9,6 +9,7 @@ import * as runs from "./runs";
 import * as customers from "./customers";
 import * as tasks from "./tasks";
 import * as senderRules from "./senderRules";
+import * as attributeSchemas from "./attributeSchemas";
 export default {
   system,
   config,
@@ -17,4 +18,5 @@ export default {
   customers,
   tasks,
   senderRules,
+  attributeSchemas,
 };

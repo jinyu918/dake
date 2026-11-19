@@ -124,12 +124,15 @@ def test_openapi_has_named_operations_and_typed_models(api):
     client, _, _, _ = api
     schema = client.get("/openapi.json").json()
     operations = {item["operationId"] for path in schema["paths"].values() for item in path.values()}
-    assert operations == {"health", "get_config", "list_events", "get_event", "get_event_context", "get_event_changes",
+    assert operations == {"health", "get_config", "list_events", "list_alert_previews", "get_event", "get_event_context", "get_event_changes",
                           "submit_manual_decision", "get_manual_decision",
                           "list_runs", "get_run", "list_customer_profiles", "list_customer_groups",
                           "create_customer_sync", "list_customer_syncs", "get_customer_sync", "list_tasks", "create_task",
                           "preview_task", "update_task", "task_action", "list_task_executions", "get_task_execution",
-                          "list_sender_rules", "search_sender_candidates", "save_sender_rule"}
+                          "list_sender_rules", "search_sender_candidates", "save_sender_rule",
+                          "list_attribute_schemas", "save_product_schema", "delete_product_schema",
+                          "save_attribute_field", "delete_attribute_field",
+                          "backfill_attribute_schemas", "get_product_analytics"}
     assert {"ConfigResponse", "EventResponse", "EventRevision", "EvidenceResponse", "RunResponse", "CycleResponse"} <= set(schema["components"]["schemas"])
     assert "synthetic-secret-never-return" not in client.get("/api/v1/config").text
 

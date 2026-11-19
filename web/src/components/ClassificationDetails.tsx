@@ -1,12 +1,24 @@
+import { formatMetricNumber, productDisplayName } from '@/lib/productLabels';
 import { formatTime } from '@/lib/utils';
 import { priorityClock } from './EventBadges';
-import { EventType } from './EventType';
 
 type FactRecord = {
   value?: unknown;
   quote?: unknown;
   evidence_ids?: unknown;
   evidence_refs?: unknown;
+};
+
+type StructuredEvidenceRecord = {
+  field_id?: unknown;
+  scope_type?: unknown;
+  scope_key?: unknown;
+  label?: unknown;
+  unit?: unknown;
+  normalized_value?: unknown;
+  raw_value?: unknown;
+  quote?: unknown;
+  evidence_ids?: unknown;
 };
 
 function messageRefIds(fact: FactRecord): string[] {
@@ -96,7 +108,7 @@ export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
   );
 }
 
-/** 展示多标签逐项原文依据、按类型归属的专属属性、「其他」排除理由及已撤销标签审计。 */
+/** 展示可配置产品归属、强类型结构化属性指标、分类标签原文依据及更正记录。 */
 export function ClassificationDetails({
   event,
   evidence = [],
@@ -107,27 +119,29 @@ export function ClassificationDetails({
   onLocate?: (evidenceKeyValue: string) => void;
 }) {
   const typeEvidence = event.type_evidence || {};
-  const typedAttributes = event.typed_attributes || {};
   const removedTypes = event.removed_types || {};
   const otherReason = event.other_reason;
+  const products = event.products || [];
+  const structuredEvidence = (event.structured_evidence ||
+    []) as StructuredEvidenceRecord[];
 
   const hasPriority =
     event.priority_detail?.rule_version === 'item-priority-v1';
   const hasTypeEvidence = Object.keys(typeEvidence).length > 0;
-  const hasTypedAttrs = Object.values(typedAttributes).some(
-    (attrs) => attrs && Object.keys(attrs).length > 0,
-  );
   const hasRemoved = Object.keys(removedTypes).length > 0;
   const hasOtherReason = Boolean(
     otherReason && typeof otherReason.quote === 'string',
   );
+  const hasProducts = products.length > 0;
+  const hasStructured = structuredEvidence.length > 0;
 
   if (
     !hasPriority &&
     !hasTypeEvidence &&
-    !hasTypedAttrs &&
     !hasRemoved &&
-    !hasOtherReason
+    !hasOtherReason &&
+    !hasProducts &&
+    !hasStructured
   ) {
     return null;
   }
@@ -141,10 +155,79 @@ export function ClassificationDetails({
   }
 
   return (
-    <section className="classification-section" aria-label="分类依据与专属属性">
+    <section
+      className="classification-section"
+      aria-label={
+        hasProducts || hasStructured ? '产品与结构化属性' : '事项分类与定级'
+      }
+    >
       <ItemPriorityDetails event={event} />
-      {hasTypeEvidence || hasTypedAttrs || hasRemoved || hasOtherReason ? (
-        <h3>分类与专属属性</h3>
+      {hasProducts || hasStructured ? <h3>产品与结构化属性</h3> : null}
+
+      {hasProducts || hasStructured ? (
+        <div className="typed-attr-card mb-3">
+          {hasProducts ? (
+            <div className="typed-attr-header flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-neutral-500">
+                涉及产品：
+              </span>
+              {products.map((pkey) => (
+                <span
+                  key={pkey}
+                  className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 ring-1 ring-amber-200/80 ring-inset"
+                >
+                  {productDisplayName(pkey)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {hasStructured ? (
+            <dl className="typed-attr-list">
+              {structuredEvidence.map((item, idx) => {
+                const label = String(
+                  item.label || item.field_id || `字段${idx}`,
+                );
+                const unit = typeof item.unit === 'string' ? item.unit : '';
+                const formatted = formatMetricNumber(
+                  item.normalized_value,
+                  unit,
+                );
+                const quote = typeof item.quote === 'string' ? item.quote : '';
+                const mids = messageRefIds({
+                  evidence_ids: item.evidence_ids,
+                });
+                return (
+                  <div key={String(item.field_id || idx)}>
+                    <dt>{label}</dt>
+                    <dd>
+                      <span className="font-medium">{formatted}</span>
+                      {quote || mids.length ? (
+                        <small className="typed-attr-proof">
+                          {quote ? `「${quote}」` : ''}
+                          {mids.map((mid) =>
+                            onLocate &&
+                            evidence.some((e) => e.message_id === mid) ? (
+                              <button
+                                key={mid}
+                                type="button"
+                                className="evidence-locate"
+                                onClick={() => locateByMessageId(mid)}
+                              >
+                                消息 {mid}
+                              </button>
+                            ) : (
+                              <span key={mid}> 消息 {mid}</span>
+                            ),
+                          )}
+                        </small>
+                      ) : null}
+                    </dd>
+                  </div>
+                );
+              })}
+            </dl>
+          ) : null}
+        </div>
       ) : null}
 
       {hasOtherReason && otherReason ? (
@@ -155,58 +238,6 @@ export function ClassificationDetails({
             otherReason.quote !== otherReason.value && (
               <blockquote>{otherReason.quote}</blockquote>
             )}
-        </div>
-      ) : null}
-
-      {hasTypedAttrs ? (
-        <div className="typed-attr-groups">
-          {Object.entries(typedAttributes).map(([label, attrs]) => {
-            const entries = Object.entries(attrs || {});
-            if (!entries.length) return null;
-            return (
-              <div key={label} className="typed-attr-card">
-                <div className="typed-attr-header">
-                  <EventType type={label} />
-                </div>
-                <dl className="typed-attr-list">
-                  {entries.map(([name, rawFact]) => {
-                    const fact = (rawFact || {}) as FactRecord;
-                    const quote =
-                      typeof fact.quote === 'string' ? fact.quote : '';
-                    const mids = messageRefIds(fact);
-                    return (
-                      <div key={name}>
-                        <dt>{name}</dt>
-                        <dd>
-                          <span>{String(fact.value ?? '—')}</span>
-                          {quote || mids.length ? (
-                            <small className="typed-attr-proof">
-                              {quote ? `「${quote}」` : ''}
-                              {mids.map((mid) =>
-                                onLocate &&
-                                evidence.some((e) => e.message_id === mid) ? (
-                                  <button
-                                    key={mid}
-                                    type="button"
-                                    className="evidence-locate"
-                                    onClick={() => locateByMessageId(mid)}
-                                  >
-                                    消息 {mid}
-                                  </button>
-                                ) : (
-                                  <span key={mid}> 消息 {mid}</span>
-                                ),
-                              )}
-                            </small>
-                          ) : null}
-                        </dd>
-                      </div>
-                    );
-                  })}
-                </dl>
-              </div>
-            );
-          })}
         </div>
       ) : null}
 
@@ -245,17 +276,18 @@ export function ClassificationDetails({
           <div className="type-evidence-list">
             {Object.entries(removedTypes).map(([label, facts]) => (
               <div key={label} className="type-evidence-group">
-                <strong>已撤销：{label}</strong>
+                <strong>{label}</strong>
                 {(facts || []).map((rawFact: Record<string, unknown>) => {
                   const fact = (rawFact || {}) as FactRecord;
                   const quote =
                     typeof fact.quote === 'string' ? fact.quote : '';
                   const mids = messageRefIds(fact);
                   return (
-                    <blockquote
-                      key={`${label}-removed-${mids.join(',')}-${quote}`}
-                    >
-                      <p>{quote || '已按更正依据撤销'}</p>
+                    <blockquote key={`${label}-${mids.join(',')}-${quote}`}>
+                      <p>{quote || '未记录更正引文'}</p>
+                      {mids.length ? (
+                        <small>消息 {mids.join('、')}</small>
+                      ) : null}
                     </blockquote>
                   );
                 })}

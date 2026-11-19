@@ -42,6 +42,169 @@ declare namespace API {
     kind: string;
   };
 
+  type AnalyticsEventItem = {
+    /** Event Id */
+    event_id: string;
+    /** Uid */
+    uid: string;
+    /** Customer Level */
+    customer_level: string | null;
+    /** Summary */
+    summary: string;
+    /** Primary Type */
+    primary_type: string;
+    /** Types */
+    types: string[];
+    /** Priority */
+    priority: string;
+    /** Lifecycle Status */
+    lifecycle_status: string;
+    /** Primary Product */
+    primary_product: string | null;
+    /** Products */
+    products: string[];
+    /** End Time */
+    end_time: string;
+    /** Props */
+    props: Record<string, any>;
+    /** Prop Evidence */
+    prop_evidence: Record<string, any>[];
+  };
+
+  type AttributeBackfillRequest = {
+    /** Uid */
+    uid?: string;
+    /** Product Key */
+    product_key?: string;
+    /** Event Type */
+    event_type?: string;
+    /** Only Missing */
+    only_missing?: boolean;
+    /** Limit */
+    limit?: number;
+    /** Use Llm */
+    use_llm?: boolean;
+  };
+
+  type AttributeBackfillResponse = {
+    /** Stream */
+    stream: string;
+    /** Scanned */
+    scanned: number;
+    /** Updated */
+    updated: number;
+    /** Llm Enriched */
+    llm_enriched: number;
+    /** Failed */
+    failed: number;
+    /** Schema Version */
+    schema_version: number;
+  };
+
+  type AttributeFieldDeleteRequest = {
+    /** Expected Version */
+    expected_version: number;
+    /** Field Id */
+    field_id: string;
+  };
+
+  type AttributeFieldInput = {
+    /** Scope Type */
+    scope_type: "product" | "event_type";
+    /** Scope Key */
+    scope_key: string;
+    /** Field Key */
+    field_key: string;
+    /** Label */
+    label: string;
+    /** Data Type */
+    data_type: "number" | "enum" | "boolean" | "string";
+    /** Unit */
+    unit?: string;
+    /** Unit Family */
+    unit_family?:
+      | "none"
+      | "count_scale"
+      | "million_tokens"
+      | "bandwidth_mbps"
+      | "storage_tb"
+      | "currency_cny"
+      | "duration_ms";
+    /** Enum Options */
+    enum_options?: string[];
+    /** Agg Ops */
+    agg_ops?: ("sum" | "avg" | "max" | "terms")[];
+    /** Applicable Types */
+    applicable_types?: string[];
+    /** Extraction Hint */
+    extraction_hint: string;
+    /** Sort Order */
+    sort_order?: number;
+    /** Enabled */
+    enabled?: boolean;
+  };
+
+  type AttributeFieldSaveRequest = {
+    /** Expected Version */
+    expected_version: number;
+    /** Field Id */
+    field_id?: string | null;
+    field: AttributeFieldInput;
+  };
+
+  type AttributeFieldSchemaItem = {
+    /** Field Id */
+    field_id: string;
+    /** Scope Type */
+    scope_type: "product" | "event_type";
+    /** Scope Key */
+    scope_key: string;
+    /** Field Key */
+    field_key: string;
+    /** Label */
+    label: string;
+    /** Data Type */
+    data_type: "number" | "enum" | "boolean" | "string";
+    /** Unit */
+    unit: string;
+    /** Unit Family */
+    unit_family:
+      | "none"
+      | "count_scale"
+      | "million_tokens"
+      | "bandwidth_mbps"
+      | "storage_tb"
+      | "currency_cny"
+      | "duration_ms";
+    /** Enum Options */
+    enum_options: string[];
+    /** Agg Ops */
+    agg_ops: ("sum" | "avg" | "max" | "terms")[];
+    /** Applicable Types */
+    applicable_types: string[];
+    /** Extraction Hint */
+    extraction_hint: string;
+    /** Sort Order */
+    sort_order: number;
+    /** Enabled */
+    enabled: boolean;
+    /** Builtin */
+    builtin: boolean;
+  };
+
+  type AttributeSchemaRegistryResponse = {
+    /** Version */
+    version: number;
+    /** Updated At */
+    updated_at: string;
+    /** Products */
+    products: ProductSchemaItem[];
+    /** Fields */
+    fields: AttributeFieldSchemaItem[];
+    /** Unit Families */
+    unit_families: UnitFamilyOption[];
+  };
+
   type ChangeEvidence = {
     /** Source */
     source: string;
@@ -551,6 +714,14 @@ declare namespace API {
     other_reason: Record<string, any> | null;
     /** Typed Attributes */
     typed_attributes: Record<string, any>;
+    /** Primary Product */
+    primary_product: string | null;
+    /** Products */
+    products: string[];
+    /** Structured Props */
+    structured_props: Record<string, any>;
+    /** Structured Evidence */
+    structured_evidence: Record<string, any>[];
     /** Topic Key */
     topic_key: string | null;
     /** Start Time */
@@ -680,6 +851,14 @@ declare namespace API {
     other_reason: Record<string, any> | null;
     /** Typed Attributes */
     typed_attributes: Record<string, any>;
+    /** Primary Product */
+    primary_product: string | null;
+    /** Products */
+    products: string[];
+    /** Structured Props */
+    structured_props: Record<string, any>;
+    /** Structured Evidence */
+    structured_evidence: Record<string, any>[];
     /** Topic Key */
     topic_key: string | null;
     /** Start Time */
@@ -948,6 +1127,12 @@ declare namespace API {
     stream?: string | null;
   };
 
+  type getProductAnalyticsParams = {
+    product_key?: string;
+    event_type?: string;
+    stream?: string | null;
+  };
+
   type getRunParams = {
     run_id: string;
     uid?: string | null;
@@ -1117,6 +1302,110 @@ declare namespace API {
     llm_timeout_seconds: number | null;
     /** Analysis Stream */
     analysis_stream: string | null;
+  };
+
+  type NumericMetricStat = {
+    /** Field Id */
+    field_id: string;
+    /** Scope Type */
+    scope_type: "product" | "event_type";
+    /** Scope Key */
+    scope_key: string;
+    /** Field Key */
+    field_key: string;
+    /** Label */
+    label: string;
+    /** Unit */
+    unit: string;
+    /** Agg Ops */
+    agg_ops: ("sum" | "avg" | "max" | "terms")[];
+    /** Hit Count */
+    hit_count: number;
+    /** Sum Value */
+    sum_value: number;
+    /** Avg Value */
+    avg_value: number;
+    /** Max Value */
+    max_value: number;
+  };
+
+  type ProductAnalyticsResponse = {
+    /** Total Events */
+    total_events: number;
+    /** Total Customers */
+    total_customers: number;
+    /** Selected Product */
+    selected_product: string | null;
+    /** Selected Event Type */
+    selected_event_type: string | null;
+    /** Product Summaries */
+    product_summaries: ProductOverviewStat[];
+    /** Numeric Metrics */
+    numeric_metrics: NumericMetricStat[];
+    /** Term Distributions */
+    term_distributions: TermDistributionStat[];
+    /** Events */
+    events: AnalyticsEventItem[];
+  };
+
+  type ProductOverviewStat = {
+    /** Product Key */
+    product_key: string;
+    /** Name */
+    name: string;
+    /** Enabled */
+    enabled: boolean;
+    /** Event Count */
+    event_count: number;
+    /** Customer Count */
+    customer_count: number;
+    /** High Priority Count */
+    high_priority_count: number;
+  };
+
+  type ProductSchemaDeleteRequest = {
+    /** Expected Version */
+    expected_version: number;
+    /** Product Key */
+    product_key: string;
+  };
+
+  type ProductSchemaInput = {
+    /** Product Key */
+    product_key: string;
+    /** Name */
+    name: string;
+    /** Description */
+    description?: string;
+    /** Keywords */
+    keywords?: string[];
+    /** Sort Order */
+    sort_order?: number;
+    /** Enabled */
+    enabled?: boolean;
+  };
+
+  type ProductSchemaItem = {
+    /** Product Key */
+    product_key: string;
+    /** Name */
+    name: string;
+    /** Description */
+    description: string;
+    /** Keywords */
+    keywords: string[];
+    /** Sort Order */
+    sort_order: number;
+    /** Enabled */
+    enabled: boolean;
+    /** Builtin */
+    builtin: boolean;
+  };
+
+  type ProductSchemaSaveRequest = {
+    /** Expected Version */
+    expected_version: number;
+    product: ProductSchemaInput;
   };
 
   type RecordedAttribution = {
@@ -1555,11 +1844,51 @@ declare namespace API {
     version: number;
   };
 
+  type TermBucketStat = {
+    /** Value */
+    value: string;
+    /** Count */
+    count: number;
+  };
+
+  type TermDistributionStat = {
+    /** Field Id */
+    field_id: string;
+    /** Scope Type */
+    scope_type: "product" | "event_type";
+    /** Scope Key */
+    scope_key: string;
+    /** Field Key */
+    field_key: string;
+    /** Label */
+    label: string;
+    /** Hit Count */
+    hit_count: number;
+    /** Buckets */
+    buckets: TermBucketStat[];
+  };
+
   type TimeWindow = {
     /** Start */
     start: string;
     /** End */
     end: string;
+  };
+
+  type UnitFamilyOption = {
+    /** Family */
+    family:
+      | "none"
+      | "count_scale"
+      | "million_tokens"
+      | "bandwidth_mbps"
+      | "storage_tb"
+      | "currency_cny"
+      | "duration_ms";
+    /** Label */
+    label: string;
+    /** Default Unit */
+    default_unit: string;
   };
 
   type updateTaskParams = {

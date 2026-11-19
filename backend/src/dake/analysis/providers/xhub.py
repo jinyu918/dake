@@ -41,6 +41,14 @@ class XHubConfig:
     timeout_seconds: float = 90
     max_tokens: int = 4096
 
+    def validate_endpoint(self) -> None:
+        """仅允许通过已确认的七牛 HTTPS 接口发送模型密钥。"""
+        if self.base_url.rstrip("/") not in {
+            "https://llmapi.qiniu.io", "https://llmapi.qiniu.io/v1",
+            "https://llmapi.qiniu.com", "https://llmapi.qiniu.com/v1",
+        }:
+            raise XHubError("仅允许已确认的 XHub 地址")
+
     @classmethod
     def load(cls, model: str, **overrides):
         """环境变量覆盖根 .env，密钥缺失时在发送请求之前报错。"""
@@ -78,8 +86,7 @@ class XHubProvider:
     def __init__(self, config: XHubConfig, settings: Settings, *,
                  transport: httpx.BaseTransport | None = None, max_requests: int = 4096,
                  repair_attempts: int = 1):
-        if config.base_url.rstrip("/") not in {"https://llmapi.qiniu.io", "https://llmapi.qiniu.io/v1"}:
-            raise XHubError("仅允许已确认的 XHub 地址")
+        config.validate_endpoint()
         if config.response_format not in {"json_schema", "json_object"}:
             raise XHubError("输出格式必须是 json_schema 或 json_object")
         if not config.model or not 1 <= config.max_tokens <= 8192 or not 1 <= config.timeout_seconds <= 300:

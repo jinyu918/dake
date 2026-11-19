@@ -40,6 +40,24 @@ function makeEvent(
         },
       },
     },
+    primary_product: 'cdn_dcdn',
+    products: ['cdn_dcdn'],
+    structured_props: {
+      product_cdn_dcdn: {
+        bandwidth_mbps: 50_000,
+      },
+    },
+    structured_evidence: [
+      {
+        field_id: 'product:cdn_dcdn:bandwidth_mbps',
+        label: '带宽规模',
+        unit: 'Mbps',
+        normalized_value: 50_000,
+        raw_value: '50Gbps',
+        quote: '新增 50Gbps 带宽采购',
+        evidence_ids: ['official_chat:m1'],
+      },
+    ],
     topic_key: 'cdn:deal',
     start_time: '2026-11-10T09:00:00+08:00',
     end_time: '2026-11-10T09:30:00+08:00',
@@ -99,7 +117,9 @@ test('详情面板完整展示多标签、专属属性、结构化状态、提�
   );
   expect(markup).toContain('商机');
   expect(markup).toContain('商务需求');
-  expect(markup).toContain('50Gbps');
+  expect(markup).toContain('带宽规模');
+  expect(markup).toContain('5 万 Mbps');
+  expect(markup).not.toContain('计划规模');
   expect(markup).toContain('已更正移除的标签（排障）');
   expect(markup).toContain('等待中');
   expect(markup).toContain('等待内部支撑');
@@ -582,4 +602,44 @@ test('工作台等待中已接手仍无需新消息即可越过 6、12、24 小�
   await expect(
     list.getByRole('listitem').first().getByText('P2', { exact: true }),
   ).toBeVisible();
+});
+
+test('详情面板正确展示可配置产品归属与强类型结构化指标单位换算结果', () => {
+  const event = makeEvent({
+    primary_product: 'ai_maas',
+    products: ['ai_maas'],
+    structured_props: {
+      product_ai_maas: {
+        model_name: 'deepseek-v3',
+        tpm_quota: 5_000_000,
+      },
+    },
+    structured_evidence: [
+      {
+        field_id: 'product:ai_maas:model_name',
+        label: '调用模型名称',
+        unit: '',
+        normalized_value: 'deepseek-v3',
+        raw_value: 'deepseek-v3',
+        quote: '合成客户反馈 deepseek-v3 限流',
+        evidence_ids: ['official_chat:m1'],
+      },
+      {
+        field_id: 'product:ai_maas:tpm_quota',
+        label: 'TPM 额度',
+        unit: 'TPM',
+        normalized_value: 5_000_000,
+        raw_value: '500万',
+        quote: '申请将 TPM 提升到 500万',
+        evidence_ids: ['official_chat:m1'],
+      },
+    ],
+  });
+  const html = renderToStaticMarkup(createElement(EventPane, { event }));
+  expect(html).toContain('AI 大模型与智能体');
+  expect(html).toContain('调用模型名称');
+  expect(html).toContain('deepseek-v3');
+  expect(html).toContain('TPM 额度');
+  expect(html).toContain('500 万 TPM');
+  expect(html).toContain('申请将 TPM 提升到 500万');
 });

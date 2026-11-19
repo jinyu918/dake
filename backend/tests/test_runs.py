@@ -72,7 +72,7 @@ class MemoryRuns:
         self.items[old]["recovered_by"] = new
 
 
-def run_fixture(tmp_path, *, days=2):
+def run_fixture(tmp_path, *, days=2, analytics_service=None):
     uid = "synthetic-run-customer"
     settings = replace(Settings(), uid=uid, data_dir=tmp_path, start=bound("2026-11-08"),
                        end=bound("2026-11-08") + timedelta(days=days), interval=timedelta(days=1))
@@ -87,7 +87,7 @@ def run_fixture(tmp_path, *, days=2):
     @contextmanager
     def service_factory(configuration, **kwargs):
         seen_settings.append(configuration)
-        yield IncrementalService(store, source, provider, configuration)
+        yield IncrementalService(store, source, provider, configuration, analytics_service=analytics_service)
 
     runner = RunRunner(settings, repository, service_factory=service_factory)
     request, total = prepare_request(settings, {"mode": "official", "interval": "1d"})
@@ -141,6 +141,33 @@ def test_regular_stored_task_persists_only_confirmed_alert_rounds(tmp_path, monk
         assert preview["state"] == "已恢复" and preview["recovered_at"] == allowed.sent_at.isoformat()
         assert [(r["kind"], r["at"]) for r in preview["reminders"]] == [("历史首次触发", trigger.sent_at.isoformat())]
     assert not provider.calls
+
+
+def test_regular_analytics_sync_only_projects_human_events(tmp_path, monkeypatch):
+    from unittest.mock import Mock
+
+    analytics = Mock()
+    _, repository, runner, store, source, provider, request, total, _ = run_fixture(
+        tmp_path, days=1, analytics_service=analytics,
+    )
+    monkeypatch.setattr(repository, "has_interrupted_range", lambda *_: False, raising=False)
+    human = replace(source.messages[0], conversation_id="allowed")
+    alert = replace(human, message_id="alert", sender_id="fixture-bot",
+                    content="【告警触发】\n告警ID：fixture\n轮次ID：one")
+    request.update(message_source="stored", allowed_groups=["allowed"], strict_window=True)
+    store.messages.update({message.key: message for message in (human, alert)})
+    monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
+        (alert.uid, alert.source, alert.sender_id, alert.conversation_id): "bot",
+    })
+    monkeypatch.setattr(store, "customer_profile", lambda _: {"level": "L8", "level_state": "fresh"}, raising=False)
+
+    assert execute_next(repository, runner, request, total)["status"] == "succeeded"
+    assert {event.type for event in store.list_events(human.uid, provider.name)} == {"排障", "机器人告警"}
+    analytics.sync_committed_events.assert_called_once()
+    (uid, events, messages), options = analytics.sync_committed_events.call_args
+    assert uid == human.uid and [event.type for event in events] == ["排障"]
+    assert [message.key for message in messages] == [human.key]
+    assert options == {"customer_level": "L8", "use_llm": False}
 
 
 def test_regular_alert_upgrade_and_source_correction_without_cross_customer_merge(tmp_path, monkeypatch):

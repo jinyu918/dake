@@ -2,6 +2,7 @@ import {
   Activity,
   Bot,
   Inbox,
+  Layers,
   Menu,
   PanelLeftClose,
   UsersRound,
@@ -40,6 +41,10 @@ export default function Workspace() {
       <NavLink to="/tasks" onClick={() => setOpen(false)}>
         <Activity size={17} />
         任务中心
+      </NavLink>
+      <NavLink to="/settings/schemas" onClick={() => setOpen(false)}>
+        <Layers size={17} />
+        属性配置
       </NavLink>
       <NavLink to="/settings/bots" onClick={() => setOpen(false)}>
         <Bot size={17} />

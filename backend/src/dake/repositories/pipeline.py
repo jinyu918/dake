@@ -51,19 +51,7 @@ class PipelineRepository(RunRepository):
     def init_schema(self):
         with self.connection() as store:
             apply_statements(store, PROJECT_ROOT / "backend/migrations/005_customer_pipelines.sql")
-            self._seed_slots(store)
-
-    def _seed_slots(self, store):
-        slots = getattr(self.settings, "analysis_slots", 2)
-        reserved = getattr(self.settings, "live_reserved", 1)
-        for index in range(slots):
-            role = "live" if index < reserved else "general"
-            store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
-                VALUES ('analysis',%s,%s,0) ON DUPLICATE KEY UPDATE
-                held_reason=IF(owner IS NULL OR lease_until<NOW(6), VALUES(held_reason), held_reason)""",
-                (index, role))
-        store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
-            VALUES ('fetch',0,'general',0) ON DUPLICATE KEY UPDATE slot=slot""")
+            self._seed_runtime_slots(store)
 
     def acquire(self, uid, window, owner, stream, *, phase, catchup_target, lease_seconds):
         """占用该客户的活动窗口。租约已过期但仍有归属时拒绝，交给核实而不是直接重跑。"""
@@ -223,10 +211,12 @@ class PipelineRepository(RunRepository):
         actions = []
         with self.connection() as store:
             rows, _ = store._execute("""SELECT uid,owner,epoch,active_stream,active_window_start,active_window_end,block_reason
-                FROM uid_pipeline_state WHERE owner IS NOT NULL AND (lease_until IS NULL OR lease_until<=NOW(6))""")
+                FROM uid_pipeline_state WHERE owner IS NOT NULL AND (lease_until IS NULL OR lease_until<=NOW(6))
+                AND IS_FREE_LOCK(CONCAT('dake:work:',COALESCE(owner,'')))=1""")
         for row in rows:
             action = self._verify_one(attempts, row)
             actions.append(action)
+        self.recover_interrupted()
         return actions
 
     def _verify_one(self, attempts, row):
@@ -259,10 +249,6 @@ class PipelineRepository(RunRepository):
                 store._execute("""UPDATE uid_pipeline_state SET owner=NULL, lease_until=NULL,
                     active_window_start=NULL, active_window_end=NULL, updated_at=NOW(6)
                     WHERE uid=%s AND epoch=%s AND block_reason IS NULL""", (uid, row["epoch"]))
-                if row["active_window_start"] is not None:
-                    store._execute("""UPDATE processing_runs SET status='queued', runner_id=NULL, started_at=NULL
-                        WHERE uid=%s AND status='running' AND JSON_UNQUOTE(JSON_EXTRACT(request,'$.start'))=%s""",
-                        (uid, _aware(row["active_window_start"]).isoformat()))
                 return dict(uid=uid, action="requeued")
 
     @staticmethod
@@ -313,7 +299,8 @@ class PipelineRepository(RunRepository):
         with self.connection() as store:
             source, _ = store._execute("SELECT fetched_until,incomplete_reason FROM source_state WHERE source='official_chat'")
             limits, _ = store._execute("""SELECT resource, COUNT(*) AS slots,
-                SUM(owner IS NOT NULL AND lease_until>NOW(6)) AS used,
+                SUM(owner IS NOT NULL AND (lease_until>NOW(6)
+                    OR IS_USED_LOCK(CONCAT('dake:work:',COALESCE(owner,''))) IS NOT NULL)) AS used,
                 SUM(held_reason='live') AS live_slots
                 FROM runtime_limits GROUP BY resource""")
             backlog, _ = store._execute("""SELECT COUNT(*) AS waiting,

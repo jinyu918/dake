@@ -9,6 +9,7 @@ description = "Incremental customer aftersales event processing"
 requires-python = ">=3.11"
 dependencies = [
     "PyMySQL[rsa]>=1.1,<2",
+    "pymongo>=4.9,<5",
     "python-dotenv>=1.0,<2",
     "fastapi>=0.115,<1",
     "uvicorn>=0.30,<1",

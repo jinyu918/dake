@@ -10,6 +10,7 @@ export default [
       { path: '/tasks/run-detail', component: './tasks/run-detail' },
       { path: '/tasks', component: './tasks' },
       { path: '/customers', component: './customers' },
+      { path: '/settings/schemas', component: './settings/schemas' },
       { path: '/settings/bots', component: './settings/bots' },
       { path: '*', component: './not-found' },
     ],

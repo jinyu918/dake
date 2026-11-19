@@ -14,7 +14,10 @@ from .routes.runs import router as runs_router
 from .routes.customers import router as customers_router
 from .routes.tasks import router as tasks_router
 from .routes.sender_rules import router as sender_rules_router
+from .routes.attribute_schemas import router as attribute_schemas_router
 from ..services.sender_rules import SenderRuleService
+from ..services.attribute_schemas import AttributeSchemaService
+from ..repositories.mongo_analytics import MongoAnalyticsStore
 from ..services.manual_decisions import (
     ManualDecisionConflict,
     ManualDecisionNotFound,
@@ -34,11 +37,14 @@ from ..services.queries import QueryService
 def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=None,
                runner=None, query_service=None, customer_repository=None,
                task_repository=None, sender_rule_service=None,
-               manual_decision_service=None, start_worker=True) -> FastAPI:
+               manual_decision_service=None, attribute_schema_service=None,
+               start_worker=True) -> FastAPI:
     """创建可测试的应用；仅导出 OpenAPI 时不会连接数据库或启动后台任务。"""
     runs = run_repository or RunRepository(settings, store_factory)
     worker = runner or RunRunner(settings, runs)
-    queries = query_service or QueryService(settings, store_factory)
+    attr_schemas = attribute_schema_service or AttributeSchemaService(settings, store_factory=store_factory)
+    default_analytics = attr_schemas.analytics if store_factory is MySQLStore or attribute_schema_service is not None else None
+    queries = query_service or QueryService(settings, store_factory, analytics_store=default_analytics)
     customers = customer_repository or CustomerRepository(settings, store_factory)
     tasks = task_repository or TaskRepository(settings, store_factory)
     task_service = TaskService(settings, tasks, runs, customers)
@@ -74,6 +80,7 @@ def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=N
         task_service,
         sender_rule_service or SenderRuleService(settings),
         manual_decision_service or ManualDecisionService(settings, store_factory),
+        attr_schemas,
     )
     application.add_middleware(TrustedHostMiddleware, allowed_hosts=list(settings.api_allowed_hosts))
 
@@ -144,5 +151,6 @@ def create_app(settings: Settings, *, store_factory=MySQLStore, run_repository=N
     application.include_router(customers_router)
     application.include_router(tasks_router)
     application.include_router(sender_rules_router)
+    application.include_router(attribute_schemas_router)
 
     return application

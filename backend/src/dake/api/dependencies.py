@@ -12,6 +12,7 @@ from ..services.queries import QueryService
 from ..services.tasks import TaskService
 from ..services.sender_rules import SenderRuleService
 from ..services.manual_decisions import ManualDecisionService
+from ..services.attribute_schemas import AttributeSchemaService
 
 
 @dataclass
@@ -26,6 +27,7 @@ class AppServices:
     tasks: TaskService | None = None
     sender_rules: SenderRuleService | None = None
     manual_decisions: ManualDecisionService | None = None
+    attribute_schemas: AttributeSchemaService | None = None
 
 
 def services(request: Request) -> AppServices:

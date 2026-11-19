@@ -96,6 +96,96 @@ def _open_slots(runs):
             WHERE resource='analysis'""")
 
 
+def test_orphan_recovery_respects_live_worker_even_after_slot_expires(explicit_isolation, tmp_path):
+    settings = explicit_isolation.settings(tmp_path, analysis_slots=1, live_reserved=0)
+    runs, pipeline = RunRepository(settings), PipelineRepository(settings)
+    _open_slots(runs)
+    origin = bound("2026-11-16T08:00:00+08:00")
+    rid = runs.create(_request(settings, "synthetic-orphan-" + uuid4().hex[:8], origin), 1)["run_id"]
+    with runs.claimed_work(source=False) as (run, _):
+        assert run["run_id"] == rid
+        with runs.connection() as store:
+            store._execute("UPDATE runtime_limits SET lease_until=NOW(6) WHERE owner=%s", (run["runner_id"],))
+        pipeline.recover_interrupted()
+        assert runs.working_ids([rid]) == {rid}
+        assert runs.get(rid)["status"] == "running"
+        other = runs.create(_request(settings, "synthetic-next-" + uuid4().hex[:8], origin), 1)["run_id"]
+        assert runs.claim_fair("synthetic-competitor") is None
+        runs.cancel_queued(other)
+    with runs.connection() as legacy:
+        with legacy.customer_lock(run["uid"]):
+            runs.recover_interrupted()
+            assert runs.get(rid)["status"] == "running"
+    pipeline.recover_interrupted()
+    pipeline.recover_interrupted()
+    assert runs.working_ids([rid]) == set()
+    assert runs.get(rid)["status"] == "queued"
+    runs.cancel_queued(rid)
+
+
+def test_orphan_completed_window_uses_existing_receipt(explicit_isolation, tmp_path, monkeypatch):
+    uid = "synthetic-committed-" + uuid4().hex[:8]
+    settings = explicit_isolation.settings(tmp_path, uid=uid, analysis_slots=1, live_reserved=0)
+    runs, pipeline, attempts = RunRepository(settings), PipelineRepository(settings), AttemptRepository(settings)
+    _open_slots(runs)
+    origin = bound("2026-11-16T08:15:00+08:00")
+    rid = runs.create(_request(settings, uid, origin), 1)["run_id"]
+    with _factory(explicit_isolation, FakeProvider(name="stub-v1"), attempts) as factory:
+        runner = RunRunner(settings, runs, service_factory=factory)
+        runner.pipeline = pipeline
+        monkeypatch.setattr(runs, "finish", lambda *args, **kwargs: None)
+        with runs.claimed_work(source=False) as (run, _):
+            runner.execute(run)
+    before = runs.get(rid)
+    assert before["completed_windows"] == 1 and before["status"] == "running"
+    pipeline.recover_interrupted()
+    pipeline.recover_interrupted()
+    after = runs.get(rid)
+    assert after["status"] == "succeeded" and after["cycles"] == before["cycles"]
+    with runs.connection() as store:
+        receipts, _ = store._execute("SELECT receipt IS NOT NULL AS saved FROM processing_attempts WHERE run_id=%s", (rid,))
+    assert receipts == [{"saved": 1}]
+
+
+def test_orphan_unknown_window_does_not_return_to_queue(explicit_isolation, tmp_path):
+    uid = "synthetic-unknown-" + uuid4().hex[:8]
+    settings = explicit_isolation.settings(tmp_path, uid=uid, analysis_slots=1, live_reserved=0)
+    runs, pipeline, attempts = RunRepository(settings), PipelineRepository(settings), AttemptRepository(settings)
+    _open_slots(runs)
+    origin = bound("2026-11-16T08:30:00+08:00")
+    window = _window(origin)
+    rid = runs.create(_request(settings, uid, origin), 1)["run_id"]
+    with runs.claimed_work(source=False) as (run, _):
+        runs.begin_window(rid, run["runner_id"], {"start": origin.isoformat(), "end": window.end.isoformat()}, {})
+        aid = attempts.create(uid, "stub-v1", window, run_id=rid, window_index=0)
+        attempts.failure(uid, "stub-v1", aid, unknown=False, model_unknown=True, error_type="SyntheticTimeout")
+    pipeline.recover_interrupted()
+    assert runs.get(rid)["status"] == "failed" and "核实" in runs.get(rid)["error"]
+    assert runs.claim_fair("synthetic-next") is None
+    assert attempts.get(uid, "stub-v1", aid)["outcome"] == "model_unknown"
+
+
+@pytest.mark.parametrize("published", [True, False])
+def test_orphan_fetch_checks_published_window(explicit_isolation, tmp_path, published):
+    settings = explicit_isolation.settings(tmp_path)
+    runs, pipeline = RunRepository(settings), PipelineRepository(settings)
+    start = bound("2026-11-15T02:00:00+08:00") + timedelta(hours=int(published))
+    window = _window(start)
+    uid = "synthetic-fetch-" + uuid4().hex[:8]
+    rid = runs.create(dict(mode="customer_sync", uid=uid), 1)["run_id"]
+    with runs.claimed_work(source=True) as (run, _):
+        assert run["run_id"] == rid
+        runs.complete_window(rid, run["runner_id"], {"window": {"start": start.isoformat(), "end": window.end.isoformat()}})
+        if published:
+            with runs.connection() as store:
+                store._execute("""INSERT INTO source_windows
+                    (fetch_id,source,window_start,window_end,status,created_at)
+                    VALUES (%s,'official_chat',%s,%s,'complete',NOW(6))""",
+                    (str(uuid4()), start.replace(tzinfo=None), window.end.replace(tzinfo=None)))
+    pipeline.recover_interrupted()
+    assert runs.get(rid)["status"] == ("succeeded" if published else "failed")
+
+
 @contextmanager
 def _factory(target, provider, attempts):
     @contextmanager

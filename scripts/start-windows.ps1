@@ -1,4 +1,4 @@
-param([switch]$Initialize)
+﻿param([switch]$Initialize)
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $env:PYTHONUTF8 = "1"
@@ -10,8 +10,8 @@ if (!(Get-Command docker -ErrorAction SilentlyContinue)) {
     }
 }
 if (!(Get-Command docker -ErrorAction SilentlyContinue)) { throw "Install and open Docker Desktop first." }
-& docker compose up -d --wait mysql
-if ($LASTEXITCODE -ne 0) { throw "MySQL did not start. Check Docker Desktop and port 3307." }
+& docker compose up -d --wait mysql mongo
+if ($LASTEXITCODE -ne 0) { throw "MySQL or MongoDB did not start. Check Docker Desktop and ports 3307 / 27017." }
 if ($Initialize) {
     & $python scripts/init_empty_database.py
     if ($LASTEXITCODE -ne 0) { throw "Database initialization stopped. Services were not started." }

@@ -43,7 +43,7 @@ class IncrementalService:
     """维持一次分析的原子性、可重试性和稳定事件身份。"""
 
     def __init__(self, store, source: Source, provider: Provider, settings: Settings,
-                 state: LocalState | None = None, *, attempts=None):
+                 state: LocalState | None = None, *, attempts=None, analytics_service=None):
         self.store = store
         self.source = source
         self.provider = provider
@@ -53,6 +53,7 @@ class IncrementalService:
         self.history_retriever = HistoryRetriever(store, settings.history_retrieval)
         self.history_context = HistoryContextService(store, settings.history_context)
         self.attempts = attempts
+        self.analytics_service = analytics_service
 
     @property
     def stream(self):
@@ -267,6 +268,21 @@ class IncrementalService:
         # 文件只提供恢复便利；正式链路写失败后按原收据恢复展示，不重新分析。
         self.state.snapshot(result)
         self.state.advance(uid, self.stream, result.watermark)
+        if self.analytics_service is not None and not self.settings.priority_preview and (result.created or result.updated):
+            try:
+                touched_ids = set(result.created) | set(result.updated)
+                touched_events = [ev for ev in events if ev.event_id in touched_ids and ev.type != ALERT_EVENT_TYPE]
+                level = customer_profile.get("level") if customer_profile and customer_profile.get("level_state") == "fresh" else None
+                self.analytics_service.sync_committed_events(
+                    uid,
+                    touched_events,
+                    [*evidence_pending, *context],
+                    customer_level=level,
+                    use_llm=(self.settings.provider == "xhub"),
+                )
+            except Exception:
+                # MongoDB 分析投射异常不影响 MySQL 主事务已提交事实，可由一键补齐随时追平。
+                pass
         return result
 
     def _preview_window(self, uid, window, messages, result, kinds):

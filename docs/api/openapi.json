@@ -2346,6 +2346,524 @@
           }
         }
       }
+    },
+    "/api/v1/attribute-schemas": {
+      "get": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "List Attribute Schemas",
+        "operationId": "list_attribute_schemas",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeSchemaRegistryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/products": {
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Save Product Schema",
+        "operationId": "save_product_schema",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSchemaSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeSchemaRegistryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/products/delete": {
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Delete Product Schema",
+        "operationId": "delete_product_schema",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProductSchemaDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeSchemaRegistryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/fields": {
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Save Attribute Field",
+        "operationId": "save_attribute_field",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributeFieldSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeSchemaRegistryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/fields/delete": {
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Delete Attribute Field",
+        "operationId": "delete_attribute_field",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributeFieldDeleteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeSchemaRegistryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/backfill": {
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Backfill Attribute Schemas",
+        "operationId": "backfill_attribute_schemas",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributeBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeBackfillResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/attribute-schemas/analytics": {
+      "get": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Get Product Analytics",
+        "operationId": "get_product_analytics",
+        "parameters": [
+          {
+            "name": "product_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "default": "",
+              "title": "Product Key"
+            }
+          },
+          {
+            "name": "event_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 32,
+              "default": "",
+              "title": "Event Type"
+            }
+          },
+          {
+            "name": "stream",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stream"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductAnalyticsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2485,6 +3003,533 @@
           "kind"
         ],
         "title": "AlertReminderPreview"
+      },
+      "AnalyticsEventItem": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "uid": {
+            "type": "string",
+            "title": "Uid"
+          },
+          "customer_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Level"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "primary_type": {
+            "type": "string",
+            "title": "Primary Type"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "priority": {
+            "type": "string",
+            "title": "Priority",
+            "default": "待评估"
+          },
+          "lifecycle_status": {
+            "type": "string",
+            "title": "Lifecycle Status",
+            "default": "状态未明"
+          },
+          "primary_product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Product"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products"
+          },
+          "end_time": {
+            "type": "string",
+            "title": "End Time"
+          },
+          "props": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Props"
+          },
+          "prop_evidence": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Prop Evidence"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "uid",
+          "customer_level",
+          "summary",
+          "primary_type",
+          "types",
+          "priority",
+          "lifecycle_status",
+          "primary_product",
+          "products",
+          "end_time",
+          "props",
+          "prop_evidence"
+        ],
+        "title": "AnalyticsEventItem",
+        "description": "聚合视图下钻展示的轻量事件摘要。"
+      },
+      "AttributeBackfillRequest": {
+        "properties": {
+          "uid": {
+            "type": "string",
+            "maxLength": 128,
+            "title": "Uid",
+            "default": ""
+          },
+          "product_key": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Product Key",
+            "default": ""
+          },
+          "event_type": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Event Type",
+            "default": ""
+          },
+          "only_missing": {
+            "type": "boolean",
+            "title": "Only Missing",
+            "default": false
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 100
+          },
+          "use_llm": {
+            "type": "boolean",
+            "title": "Use Llm",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "AttributeBackfillRequest",
+        "description": "触发存量事件结构化字段补齐请求。"
+      },
+      "AttributeBackfillResponse": {
+        "properties": {
+          "stream": {
+            "type": "string",
+            "title": "Stream"
+          },
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned"
+          },
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          },
+          "llm_enriched": {
+            "type": "integer",
+            "title": "Llm Enriched"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stream",
+          "scanned",
+          "updated",
+          "llm_enriched",
+          "failed",
+          "schema_version"
+        ],
+        "title": "AttributeBackfillResponse",
+        "description": "存量事件结构化字段补齐执行结果。"
+      },
+      "AttributeFieldDeleteRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "field_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 3,
+            "title": "Field Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "field_id"
+        ],
+        "title": "AttributeFieldDeleteRequest",
+        "description": "删除自定义结构化字段请求。"
+      },
+      "AttributeFieldInput": {
+        "properties": {
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "product",
+              "event_type"
+            ],
+            "title": "Scope Type"
+          },
+          "scope_key": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Scope Key"
+          },
+          "field_key": {
+            "type": "string",
+            "maxLength": 48,
+            "minLength": 2,
+            "title": "Field Key"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "data_type": {
+            "type": "string",
+            "enum": [
+              "number",
+              "enum",
+              "boolean",
+              "string"
+            ],
+            "title": "Data Type"
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Unit",
+            "default": ""
+          },
+          "unit_family": {
+            "type": "string",
+            "enum": [
+              "none",
+              "count_scale",
+              "million_tokens",
+              "bandwidth_mbps",
+              "storage_tb",
+              "currency_cny",
+              "duration_ms"
+            ],
+            "title": "Unit Family",
+            "default": "none"
+          },
+          "enum_options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Enum Options"
+          },
+          "agg_ops": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "avg",
+                "max",
+                "terms"
+              ]
+            },
+            "type": "array",
+            "title": "Agg Ops"
+          },
+          "applicable_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Applicable Types"
+          },
+          "extraction_hint": {
+            "type": "string",
+            "maxLength": 512,
+            "minLength": 2,
+            "title": "Extraction Hint"
+          },
+          "sort_order": {
+            "type": "integer",
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "default": 100
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scope_type",
+          "scope_key",
+          "field_key",
+          "label",
+          "data_type",
+          "extraction_hint"
+        ],
+        "title": "AttributeFieldInput",
+        "description": "保存结构化属性字段输入参数。"
+      },
+      "AttributeFieldSaveRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "field_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field Id"
+          },
+          "field": {
+            "$ref": "#/components/schemas/AttributeFieldInput"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "field"
+        ],
+        "title": "AttributeFieldSaveRequest",
+        "description": "带乐观锁版本号的字段配置保存请求。"
+      },
+      "AttributeFieldSchemaItem": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "product",
+              "event_type"
+            ],
+            "title": "Scope Type"
+          },
+          "scope_key": {
+            "type": "string",
+            "title": "Scope Key"
+          },
+          "field_key": {
+            "type": "string",
+            "title": "Field Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "data_type": {
+            "type": "string",
+            "enum": [
+              "number",
+              "enum",
+              "boolean",
+              "string"
+            ],
+            "title": "Data Type"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "default": ""
+          },
+          "unit_family": {
+            "type": "string",
+            "enum": [
+              "none",
+              "count_scale",
+              "million_tokens",
+              "bandwidth_mbps",
+              "storage_tb",
+              "currency_cny",
+              "duration_ms"
+            ],
+            "title": "Unit Family",
+            "default": "none"
+          },
+          "enum_options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Enum Options"
+          },
+          "agg_ops": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "avg",
+                "max",
+                "terms"
+              ]
+            },
+            "type": "array",
+            "title": "Agg Ops"
+          },
+          "applicable_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Applicable Types"
+          },
+          "extraction_hint": {
+            "type": "string",
+            "title": "Extraction Hint"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order",
+            "default": 100
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "builtin": {
+            "type": "boolean",
+            "title": "Builtin",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "scope_type",
+          "scope_key",
+          "field_key",
+          "label",
+          "data_type",
+          "unit",
+          "unit_family",
+          "enum_options",
+          "agg_ops",
+          "applicable_types",
+          "extraction_hint",
+          "sort_order",
+          "enabled",
+          "builtin"
+        ],
+        "title": "AttributeFieldSchemaItem",
+        "description": "单个结构化事件属性定义元数据。"
+      },
+      "AttributeSchemaRegistryResponse": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At"
+          },
+          "products": {
+            "items": {
+              "$ref": "#/components/schemas/ProductSchemaItem"
+            },
+            "type": "array",
+            "title": "Products"
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/AttributeFieldSchemaItem"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "unit_families": {
+            "items": {
+              "$ref": "#/components/schemas/UnitFamilyOption"
+            },
+            "type": "array",
+            "title": "Unit Families"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "updated_at",
+          "products",
+          "fields",
+          "unit_families"
+        ],
+        "title": "AttributeSchemaRegistryResponse",
+        "description": "配置中心完整响应。"
       },
       "ChangeEvidence": {
         "properties": {
@@ -4268,6 +5313,44 @@
             "type": "object",
             "title": "Typed Attributes"
           },
+          "primary_product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Product"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products"
+          },
+          "structured_props": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Structured Props"
+          },
+          "structured_evidence": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Structured Evidence"
+          },
           "topic_key": {
             "anyOf": [
               {
@@ -4541,6 +5624,10 @@
           "classification_status",
           "other_reason",
           "typed_attributes",
+          "primary_product",
+          "products",
+          "structured_props",
+          "structured_evidence",
           "topic_key",
           "start_time",
           "end_time",
@@ -4837,6 +5924,44 @@
             "type": "object",
             "title": "Typed Attributes"
           },
+          "primary_product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Product"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products"
+          },
+          "structured_props": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Structured Props"
+          },
+          "structured_evidence": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Structured Evidence"
+          },
           "topic_key": {
             "anyOf": [
               {
@@ -5089,6 +6214,10 @@
           "classification_status",
           "other_reason",
           "typed_attributes",
+          "primary_product",
+          "products",
+          "structured_props",
+          "structured_evidence",
           "topic_key",
           "start_time",
           "end_time",
@@ -6381,6 +7510,345 @@
         ],
         "title": "NormalizedRunRequest",
         "description": "已校验并冻结的请求，范围变化不会受之后修改 .env 的影响。"
+      },
+      "NumericMetricStat": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "product",
+              "event_type"
+            ],
+            "title": "Scope Type"
+          },
+          "scope_key": {
+            "type": "string",
+            "title": "Scope Key"
+          },
+          "field_key": {
+            "type": "string",
+            "title": "Field Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "unit": {
+            "type": "string",
+            "title": "Unit",
+            "default": ""
+          },
+          "agg_ops": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "sum",
+                "avg",
+                "max",
+                "terms"
+              ]
+            },
+            "type": "array",
+            "title": "Agg Ops"
+          },
+          "hit_count": {
+            "type": "integer",
+            "title": "Hit Count"
+          },
+          "sum_value": {
+            "type": "number",
+            "title": "Sum Value"
+          },
+          "avg_value": {
+            "type": "number",
+            "title": "Avg Value"
+          },
+          "max_value": {
+            "type": "number",
+            "title": "Max Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "scope_type",
+          "scope_key",
+          "field_key",
+          "label",
+          "unit",
+          "agg_ops",
+          "hit_count",
+          "sum_value",
+          "avg_value",
+          "max_value"
+        ],
+        "title": "NumericMetricStat",
+        "description": "数值型结构化字段在 MongoDB 聚合下的求和、均值与峰值。"
+      },
+      "ProductAnalyticsResponse": {
+        "properties": {
+          "total_events": {
+            "type": "integer",
+            "title": "Total Events"
+          },
+          "total_customers": {
+            "type": "integer",
+            "title": "Total Customers"
+          },
+          "selected_product": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Product"
+          },
+          "selected_event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Event Type"
+          },
+          "product_summaries": {
+            "items": {
+              "$ref": "#/components/schemas/ProductOverviewStat"
+            },
+            "type": "array",
+            "title": "Product Summaries"
+          },
+          "numeric_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/NumericMetricStat"
+            },
+            "type": "array",
+            "title": "Numeric Metrics"
+          },
+          "term_distributions": {
+            "items": {
+              "$ref": "#/components/schemas/TermDistributionStat"
+            },
+            "type": "array",
+            "title": "Term Distributions"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/AnalyticsEventItem"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_events",
+          "total_customers",
+          "selected_product",
+          "selected_event_type",
+          "product_summaries",
+          "numeric_metrics",
+          "term_distributions",
+          "events"
+        ],
+        "title": "ProductAnalyticsResponse",
+        "description": "MongoDB 多维产品与动态属性聚合汇总响应。"
+      },
+      "ProductOverviewStat": {
+        "properties": {
+          "product_key": {
+            "type": "string",
+            "title": "Product Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "event_count": {
+            "type": "integer",
+            "title": "Event Count",
+            "default": 0
+          },
+          "customer_count": {
+            "type": "integer",
+            "title": "Customer Count",
+            "default": 0
+          },
+          "high_priority_count": {
+            "type": "integer",
+            "title": "High Priority Count",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_key",
+          "name",
+          "enabled",
+          "event_count",
+          "customer_count",
+          "high_priority_count"
+        ],
+        "title": "ProductOverviewStat",
+        "description": "单条产品线的事件与客户覆盖汇总卡片。"
+      },
+      "ProductSchemaDeleteRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "product_key": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Product Key"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "product_key"
+        ],
+        "title": "ProductSchemaDeleteRequest",
+        "description": "删除自定义产品配置请求。"
+      },
+      "ProductSchemaInput": {
+        "properties": {
+          "product_key": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 2,
+            "title": "Product Key"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 256,
+            "title": "Description",
+            "default": ""
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keywords"
+          },
+          "sort_order": {
+            "type": "integer",
+            "maximum": 9999.0,
+            "minimum": 0.0,
+            "title": "Sort Order",
+            "default": 100
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "product_key",
+          "name"
+        ],
+        "title": "ProductSchemaInput",
+        "description": "保存产品种类输入参数。"
+      },
+      "ProductSchemaItem": {
+        "properties": {
+          "product_key": {
+            "type": "string",
+            "title": "Product Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keywords"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order",
+            "default": 100
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "builtin": {
+            "type": "boolean",
+            "title": "Builtin",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_key",
+          "name",
+          "description",
+          "keywords",
+          "sort_order",
+          "enabled",
+          "builtin"
+        ],
+        "title": "ProductSchemaItem",
+        "description": "单条七牛产品种类配置。"
+      },
+      "ProductSchemaSaveRequest": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "product": {
+            "$ref": "#/components/schemas/ProductSchemaInput"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "product"
+        ],
+        "title": "ProductSchemaSaveRequest",
+        "description": "带乐观锁版本号的产品配置保存请求。"
       },
       "RecordedAttribution": {
         "properties": {
@@ -7971,6 +9439,76 @@
         ],
         "title": "TaskUpdate"
       },
+      "TermBucketStat": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "TermBucketStat",
+        "description": "单个枚举值或实体词命中频次。"
+      },
+      "TermDistributionStat": {
+        "properties": {
+          "field_id": {
+            "type": "string",
+            "title": "Field Id"
+          },
+          "scope_type": {
+            "type": "string",
+            "enum": [
+              "product",
+              "event_type"
+            ],
+            "title": "Scope Type"
+          },
+          "scope_key": {
+            "type": "string",
+            "title": "Scope Key"
+          },
+          "field_key": {
+            "type": "string",
+            "title": "Field Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "hit_count": {
+            "type": "integer",
+            "title": "Hit Count"
+          },
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/TermBucketStat"
+            },
+            "type": "array",
+            "title": "Buckets"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field_id",
+          "scope_type",
+          "scope_key",
+          "field_key",
+          "label",
+          "hit_count",
+          "buckets"
+        ],
+        "title": "TermDistributionStat",
+        "description": "非数值结构化字段的 Top 分布统计。"
+      },
       "TimeWindow": {
         "properties": {
           "start": {
@@ -7989,6 +9527,39 @@
         ],
         "title": "TimeWindow",
         "description": "业务窗口统一使用上海时区的左闭右开时间戳。"
+      },
+      "UnitFamilyOption": {
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": [
+              "none",
+              "count_scale",
+              "million_tokens",
+              "bandwidth_mbps",
+              "storage_tb",
+              "currency_cny",
+              "duration_ms"
+            ],
+            "title": "Family"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "default_unit": {
+            "type": "string",
+            "title": "Default Unit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "family",
+          "label",
+          "default_unit"
+        ],
+        "title": "UnitFamilyOption",
+        "description": "前端表单可选的数值标准量纲换算组。"
       },
       "WatermarkResponse": {
         "properties": {

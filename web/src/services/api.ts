@@ -1,3 +1,12 @@
+import {
+  backfillAttributeSchemas,
+  deleteAttributeField,
+  deleteProductSchema,
+  getProductAnalytics,
+  listAttributeSchemas,
+  saveAttributeField,
+  saveProductSchema,
+} from './generated/attributeSchemas';
 import { getConfig } from './generated/config';
 import {
   createCustomerSync,
@@ -35,6 +44,25 @@ export const api = {
   senderCandidates: (keyword: string, offset: number, signal?: AbortSignal) =>
     searchSenderCandidates({ keyword, offset, limit: 25 }, { signal }),
   saveSenderRule: (body: API.SenderRuleSave) => saveSenderRule(body),
+  attributeSchemas: (signal?: AbortSignal) => listAttributeSchemas({ signal }),
+  saveProductSchema: (body: API.ProductSchemaSaveRequest) =>
+    saveProductSchema(body),
+  deleteProductSchema: (body: API.ProductSchemaDeleteRequest) =>
+    deleteProductSchema(body),
+  saveAttributeField: (body: API.AttributeFieldSaveRequest) =>
+    saveAttributeField(body),
+  deleteAttributeField: (body: API.AttributeFieldDeleteRequest) =>
+    deleteAttributeField(body),
+  backfillAttributeSchemas: (body: API.AttributeBackfillRequest) =>
+    backfillAttributeSchemas(body),
+  productAnalytics: (productKey = '', eventType = '', signal?: AbortSignal) =>
+    getProductAnalytics(
+      {
+        product_key: productKey || undefined,
+        event_type: eventType || undefined,
+      },
+      { signal },
+    ),
   tasks: (signal?: AbortSignal) => listTasks({ signal }),
   createTask: (body: API.TaskConfig) => createTask(body),
   updateTask: (taskId: string, body: API.TaskUpdate) =>

@@ -37,7 +37,7 @@ python3 -m venv .venv
 首次使用将 `.env.example` 复制为 `.env`，分别设置 `MYSQL_PASSWORD` 和 `MYSQL_ROOT_PASSWORD` 为不同的随机密码。已有本地 `.env` 时保留原文件，再启动数据库并建表：
 
 ```bash
-docker compose up -d --wait mysql
+docker compose up -d --wait mysql mongo
 docker compose ps
 .venv/bin/dake init-db
 docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --user="$MYSQL_USER" "$MYSQL_DATABASE"' < backend/migrations/001_processing_attempts.sql
@@ -51,7 +51,7 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" exec mysql --use
 .venv/bin/python scripts/db_snapshot.py import backend/schema.sql
 ```
 
-MySQL 8.4 仅监听 `127.0.0.1:3307`，数据库默认 `dake_aftersales`，应用用户默认 `dake`。数据保存在 `data/mysql/`。健康检查使用应用账号执行查询，启动完成后应显示 `healthy`。
+MySQL 8.4 仅监听 `127.0.0.1:3307`（数据保存在 `data/mysql/`），MongoDB 7 仅监听 `127.0.0.1:27017`（数据保存在 `data/mongo/`，用于可视化产品与结构化属性模板及多维聚合汇总分析，首次访问时自动初始化预置目录与索引）。启动完成后两者均应显示 `healthy`。
 
 业务存储使用 `messages` 和 `events`，网页任务存于 `processing_runs`（API 启动时幂等创建），逐窗口执行与重试存于 `processing_attempts`。执行记录表由 `backend/migrations/001_processing_attempts.sql` 显式迁移；当前本地库已有此表，新环境需先迁移。消息的处理标记与事件更新在同一事务提交；`data/state/` 的水位仅帮助选择下一次窗口，丢失后可依据数据库记录去重。
 

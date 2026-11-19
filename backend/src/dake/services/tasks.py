@@ -184,7 +184,7 @@ class TaskService:
         if state["children"]:
             execution["stage"] = "analysis"
             self._drain(execution)
-        self._phases(execution)
+        execution["status"], state["phases"], _ = self._activity(execution)
         self._maybe_finish(execution)
         if execution["status"] in ("queued", "running"):
             self.tasks.save_execution(execution)
@@ -248,7 +248,7 @@ class TaskService:
         interval = duration(config["interval"])
         ahead = interval * int(getattr(self.settings, "fetch_ahead", 2))
         active = [bound(child.get("cursor") or state["start"]) for child in state["children"]
-                  if child["status"] not in ("failed", "skipped")]
+                  if config["operation"] == "analyze" and child["status"] not in ("failed", "skipped")]
         slowest = min(active) if active else published
         target = min(bound(state["end"]), slowest + ahead)
         if published >= target or published >= bound(state["end"]):
@@ -289,6 +289,10 @@ class TaskService:
                     child["reason"] = None
                     child["run_id"] = None
                     child.pop("retry_at", None)
+            target = horizon if state.get("plan_windows", True) else published
+            if (child["status"] == "succeeded" and state["config"]["operation"] == "analyze"
+                    and bound(child["cursor"]) < target):
+                child["status"] = "queued"
             if child["status"] in ("failed", "skipped", "succeeded"):
                 continue
             if child.get("retry_at") and bound(child["retry_at"]) > self.clock():
@@ -319,6 +323,9 @@ class TaskService:
                 continue
             if cursor >= limit:
                 child["status"] = "queued"
+                continue
+            if state.get("policy_error"):
+                child.update(status="failed", reason=state["policy_error"], run_id=None)
                 continue
             window_end = min(cursor + interval, limit)
             # 空窗口也通过事务回执推进客户水位，业务服务会跳过模型调用。
@@ -353,8 +360,13 @@ class TaskService:
                 child.pop("retry_at", None)
                 return
         child["retries_used"] = child.get("retries_used", 0) + 1
-        blocked = any(word in error for word in ("未确认", "已提交", "核实", "策略已变化", "合约已变化", "倒灌", "执行权", "模型结果未知"))
-        if child["retries_used"] <= state["config"]["retries"] and not blocked:
+        outdated = "策略已变化" in error or "合约已变化" in error
+        blocked = any(word in error for word in ("未确认", "已提交", "核实", "倒灌", "执行权", "模型结果未知"))
+        if outdated:
+            state["plan_windows"] = False
+            state["policy_error"] = error
+            state["error"] = "分析规则已更新，本轮提前结束。已完成的窗口已保存。"
+        if child["retries_used"] <= state["config"]["retries"] and not (blocked or outdated):
             child["status"] = "queued"
             child["run_id"] = None
             child["retry_at"] = (self.clock() + duration(state["config"]["retry_delay"])).isoformat()
@@ -382,14 +394,27 @@ class TaskService:
         self.finish(execution, "partial" if state.get("had_errors") or any(
             child["status"] == "failed" for child in state["children"]) else "succeeded", advance=not paused and reached)
 
-    def _phases(self, execution):
+    def _activity(self, execution):
+        """调度启用、等待下一窗和后台实际占用名额分别计算。"""
         state = execution["state"]
-        syncing = any(item["status"] in ("queued", "running") for item in self._syncs(state))
-        analyzing = any(child["status"] in ("queued", "running") for child in state["children"])
-        state["phases"] = dict(
-            fetch="running" if syncing else "done" if bound(state.get("published_until", state["start"])) > bound(state["start"]) else "idle",
-            discovery="running" if execution["stage"] == "discovery" and not state["children"] else "done",
-            analysis="running" if analyzing else "idle")
+        pending = [c for c in state["children"] if c["status"] in ("queued", "running")]
+        ids = {c["run_id"] for c in pending if c.get("run_id")}
+        sync_id = state.get("sync_run_id")
+        if sync_id:
+            ids.add(sync_id)
+        status = execution["status"]
+        working = self.runs.working_ids(ids) if ids and status in ("queued", "running") else set()
+        if status in ("queued", "running"):
+            status = "running" if working else "queued"
+        fetching = sync_id in working
+        analysis = working - {sync_id}
+        published = bound(state.get("published_until", state["start"])) > bound(state["start"])
+        analyzed = (not pending and state["config"]["operation"] == "analyze"
+                    and any(c["status"] == "succeeded" for c in state["children"]))
+        phases = dict(fetch="running" if fetching else "done" if published else "idle",
+            discovery="done" if state["children"] else "running" if fetching else "idle",
+            analysis="running" if analysis else "done" if analyzed else "idle")
+        return status, phases, analysis
 
     def select_customers(self, state):
         config, children = state["config"], []
@@ -470,12 +495,15 @@ class TaskService:
 
     def progress(self, execution):
         state = execution["state"]
+        status, phases, working = self._activity(execution)
         customers, created, updated, processed = [], set(), set(), 0
         waiting = []
         run_ids = (rid for child in state["children"] for rid in child.get("run_ids") or [])
         analysis_runs = self.runs.progress_rows(run_ids, include_cycles=True)
         for child in state["children"]:
             item = {k: child.get(k) for k in ("uid", "level", "status", "reason", "run_id")}
+            if item["status"] in ("queued", "running"):
+                item["status"] = "running" if child.get("run_id") in working else "queued"
             item["run_id"] = child.get("run_id") or next(iter(reversed(child.get("run_ids") or [])), None)
             item["stream"] = state["template"]["analysis_stream"]
             item.update(processed=0, created=0, updated=0, completed_windows=0, total_windows=0,
@@ -489,8 +517,6 @@ class TaskService:
                     continue
                 item["completed_windows"] += run["completed_windows"]
                 item["total_windows"] += run["total_windows"]
-                if run_id == child.get("run_id") and item["status"] == "queued":
-                    item["status"] = run["status"] if run["status"] in ("queued", "running") else "queued"
                 if run["status"] == "queued" and run.get("created_at"):
                     waiting.append(bound(run["created_at"]))
                 for cycle in run["cycles"]:
@@ -509,7 +535,7 @@ class TaskService:
         syncs = self._syncs(state)
         slots = int(getattr(self.settings, "analysis_slots", 2))
         oldest = int((self.clock() - min(waiting)).total_seconds()) if waiting else None
-        return dict(execution_id=execution["execution_id"], task_id=execution["task_id"], status=execution["status"],
+        return dict(execution_id=execution["execution_id"], task_id=execution["task_id"], status=status,
             stage=execution["stage"], start=state["start"], end=state["end"], created_at=execution["created_at"],
             finished_at=execution["finished_at"], config=state["config"], error=state.get("error"),
             source_messages=state["source_messages"], source_errors=state["source_errors"], processed=processed,
@@ -517,6 +543,6 @@ class TaskService:
             sync_completed=sum(s["completed_windows"] for s in syncs),
             sync_total=sum(s["total_windows"] for s in syncs),
             customers=customers, backlog=len(waiting), oldest_wait_seconds=oldest,
-            capacity_used=sum(child["status"] == "running" for child in state["children"]), capacity_total=slots,
-            isolated_count=state.get("isolated_count", 0), phases=state.get("phases") or {},
+            capacity_used=len(working), capacity_total=slots,
+            isolated_count=state.get("isolated_count", 0), phases=phases,
             capacity_notice="共享并发额度仍会排队，不保证五分钟内完成。")

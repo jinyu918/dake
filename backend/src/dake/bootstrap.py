@@ -10,6 +10,7 @@ from .ingestion.adapter import OfficialChatSource
 from .ingestion.client import ChatRecordsClient
 from .repositories.mysql import MySQLStore
 from .repositories.attempts import AttemptRepository
+from .services.attribute_schemas import AttributeSchemaService
 from .services.processing import IncrementalService
 
 
@@ -25,7 +26,8 @@ def build_service(settings: Settings, *, offline: bool = False) -> Iterator[Incr
                                                 timeout_seconds=settings.llm_timeout_seconds), settings)
                     if settings.provider == "xhub" else StubProvider())
         yield IncrementalService(store, source, provider, settings,
-                                 attempts=AttemptRepository(settings))
+                                 attempts=AttemptRepository(settings),
+                                 analytics_service=AttributeSchemaService(settings, store_factory=MySQLStore))
     finally:
         if provider is not None and hasattr(provider, "close"):
             provider.close()

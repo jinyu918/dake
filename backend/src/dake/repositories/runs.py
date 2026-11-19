@@ -1,6 +1,6 @@
 """持久化处理任务与周期进度；业务事件仍由既有 MySQL 仓库维护。"""
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 import hashlib
 import json
@@ -99,7 +99,9 @@ class RunRepository:
             role = "live" if index < reserved else "general"
             store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
                 VALUES ('analysis',%s,%s,0) ON DUPLICATE KEY UPDATE
-                held_reason=IF(owner IS NULL OR lease_until<NOW(6), VALUES(held_reason), held_reason)""",
+                held_reason=IF(owner IS NULL OR ((lease_until IS NULL OR lease_until<=NOW(6))
+                    AND IS_FREE_LOCK(CONCAT('dake:work:',COALESCE(owner,'')))=1),
+                    VALUES(held_reason), held_reason)""",
                 (index, role))
         store._execute("""INSERT INTO runtime_limits (resource,slot,held_reason,epoch)
             VALUES ('fetch',0,'general',0) ON DUPLICATE KEY UPDATE slot=slot""")
@@ -276,8 +278,98 @@ class RunRepository:
         return dict(items=[by_id[rid] for rid in ids], total=len(heads))
 
     def recover_interrupted(self):
-        """重启不再把 running 批量改成失败；过期租约由核实流程逐项处理。"""
-        return None
+        """核对失去工人的运行，包括尚未取窗口和已经释放客户执行权的两个间隙。"""
+        orphan = """r.status='running' AND IS_FREE_LOCK(CONCAT('dake:work:',COALESCE(r.runner_id,'')))=1
+            AND NOT EXISTS (SELECT 1 FROM runtime_limits l WHERE l.owner=r.runner_id AND l.lease_until>NOW(6))
+            AND NOT EXISTS (SELECT 1 FROM uid_pipeline_state p WHERE p.uid=r.uid AND p.owner IS NOT NULL)"""
+        with self.connection() as store:
+            ids, _ = store._execute("SELECT r.run_id FROM processing_runs r WHERE " + orphan)
+            for item in ids:
+                with store.metadata_transaction():
+                    rows, _ = store._execute("""SELECT r.run_id,r.uid,r.mode,r.completed_windows,r.total_windows,
+                        r.current_window IS NOT NULL AS in_window, r.request->>'$.analysis_stream' AS stream,
+                        r.request->>'$.strict_window' AS strict_window
+                        FROM processing_runs r WHERE r.run_id=%s AND """ + orphan + " FOR UPDATE", (item["run_id"],))
+                    if not rows:
+                        continue
+                    run = rows[0]
+                    # 旧版非严格窗口在模型调用期间持有客户锁，耗时超过名额租约也仍在工作。
+                    free, _ = store._execute("SELECT IS_FREE_LOCK(%s) AS ok", (store.customer_lock_name(run["uid"]),))
+                    if free[0]["ok"] != 1:
+                        continue
+                    status, error = self._interrupted_result(store, run)
+                    store._execute("""UPDATE processing_runs SET status=%s,error=%s,runner_id=NULL,
+                        started_at=IF(%s='queued',NULL,started_at),finished_at=IF(%s='queued',NULL,NOW(6))
+                        WHERE run_id=%s""", (status, error, status, status, run["run_id"]))
+
+    @staticmethod
+    def _interrupted_result(store, run):
+        """仅从已提交回执或已发布的来源窗口确认完成；未决窗口留下原因供核实。"""
+        complete = run["completed_windows"]
+        if complete:
+            if run["mode"] == "customer_sync":
+                rows, _ = store._execute("""SELECT COUNT(DISTINCT IF(w.fetch_id IS NULL,NULL,c.idx)) AS confirmed,
+                    SUM(COALESCE(c.profiles,0)+COALESCE(c.lookups,0)) AS errors FROM processing_runs r
+                    JOIN JSON_TABLE(r.cycles,'$[*]' COLUMNS(
+                        idx FOR ORDINALITY, start_at VARCHAR(40) PATH '$.window.start', end_at VARCHAR(40) PATH '$.window.end',
+                        profiles INT PATH '$.profile_errors', lookups INT PATH '$.lookup_errors')) c ON TRUE
+                    LEFT JOIN source_windows w ON w.source='official_chat' AND w.status='complete'
+                        AND w.window_start=CAST(SUBSTRING_INDEX(c.start_at,'+',1) AS DATETIME(6))
+                        AND w.window_end=CAST(SUBSTRING_INDEX(c.end_at,'+',1) AS DATETIME(6)) WHERE r.run_id=%s""", (run["run_id"],))
+            else:
+                rows, _ = store._execute("""SELECT COUNT(a.attempt_id) AS confirmed FROM processing_runs r
+                    JOIN JSON_TABLE(r.cycles,'$[*]' COLUMNS(idx FOR ORDINALITY,
+                        attempt_id VARCHAR(36) PATH '$.attempt_id', start_at VARCHAR(40) PATH '$.window.start',
+                        end_at VARCHAR(40) PATH '$.window.end')) c ON TRUE
+                    JOIN processing_attempts a ON a.attempt_id=c.attempt_id AND a.uid=r.uid
+                        AND a.run_id=r.run_id AND a.window_index=c.idx-1 AND a.receipt IS NOT NULL
+                        AND a.window_start=c.start_at AND a.window_end=c.end_at
+                        AND (r.request->>'$.analysis_stream' IS NULL OR a.stream=r.request->>'$.analysis_stream')
+                    WHERE r.run_id=%s""", (run["run_id"],))
+            if rows[0]["confirmed"] != complete:
+                return "failed", "执行中断，已处理窗口的提交结果未确认，请核实"
+            if complete == run["total_windows"] and not run["in_window"]:
+                if rows[0].get("errors"):
+                    return "failed", "部分资料或群搜索查询失败，已保存有效结果"
+                return "succeeded", None
+        attempts, _ = store._execute("""SELECT (run_id=%s AND window_index>=%s AND receipt IS NOT NULL) AS delivered,
+                outcome,error_code FROM processing_attempts
+            WHERE uid=%s AND ((run_id=%s AND window_index>=%s)
+                OR outcome IN ('commit_unknown','model_unknown') OR (stream=%s AND outcome='running'))""",
+            (run["run_id"], complete, run["uid"], run["run_id"], complete, run["stream"]))
+        if any(a["delivered"] for a in attempts):
+            return "failed", "窗口业务已提交，执行中断，请按回执恢复展示"
+        blocked, _ = store._execute("SELECT block_reason FROM uid_pipeline_state WHERE uid=%s", (run["uid"],))
+        unresolved = any(a["outcome"] != "not_committed" or a["error_code"] != "released" for a in attempts)
+        if unresolved or (blocked and blocked[0]["block_reason"]) or (run["in_window"] and run["strict_window"] != "true"):
+            return "failed", "执行中断，当前窗口的结果未确认，请核实后再继续"
+        return "queued", None
+
+    @contextmanager
+    def claimed_work(self, *, source):
+        """一次领取独占一个身份和连接；工人退出或断线时 MySQL 自动释放执行锁。"""
+        owner = str(uuid4())
+        with self.connection() as keeper:
+            run = self._claim(owner, source=source, keeper=keeper)
+            try:
+                yield run, keeper
+            finally:
+                if run is not None:
+                    self.release_slot(owner, source=source, slot=run["_capacity_slot"])
+
+    def working_ids(self, run_ids):
+        """只统计这批任务实际占用的名额，兼容旧工人的短租约。"""
+        ids = tuple(set(run_ids))
+        if not ids:
+            return set()
+        with self.connection() as store:
+            rows, _ = store._execute("""SELECT DISTINCT r.run_id
+                FROM runtime_limits l JOIN processing_runs r ON r.runner_id=l.owner
+                AND l.resource=IF(r.mode='customer_sync','fetch','analysis')
+                WHERE r.status='running' AND (l.lease_until>NOW(6)
+                    OR IS_USED_LOCK(CONCAT('dake:work:',COALESCE(l.owner,''))) IS NOT NULL)
+                AND r.run_id IN (""" + ",".join(["%s"] * len(ids)) + ")", ids)
+        return {row["run_id"] for row in rows}
 
     def claim_source(self, runner_id: str) -> dict | None:
         """领取一个全局抓取窗口；不按客户重复取数，也不占用分析名额。"""
@@ -287,19 +379,21 @@ class RunRepository:
         """空闲分析名额领取可运行客户的最早窗口；实时预留名额不借给历史追赶。"""
         return self._claim(runner_id, source=False)
 
-    def _claim(self, runner_id: str, *, source: bool) -> dict | None:
+    def _claim(self, runner_id: str, *, source: bool, keeper=None) -> dict | None:
         lease = int(getattr(self.settings, "lease_seconds", 30))
         slots = int(getattr(self.settings, "analysis_slots", 2))
         chosen = None
         held = None
         for attempt in range(3):
             try:
-                with self.connection() as store:
+                with nullcontext(keeper) if keeper is not None else self.connection() as store:
                     with store.metadata_transaction():
                         resource = "fetch" if source else "analysis"
                         limit = 1 if source else slots
                         free, _ = store._execute("""SELECT slot, held_reason FROM runtime_limits
-                            WHERE resource=%s AND slot<%s AND (owner IS NULL OR lease_until<NOW(6))
+                            WHERE resource=%s AND slot<%s AND (owner IS NULL OR
+                                ((lease_until IS NULL OR lease_until<=NOW(6))
+                                    AND IS_FREE_LOCK(CONCAT('dake:work:',COALESCE(owner,'')))=1))
                             ORDER BY slot FOR UPDATE SKIP LOCKED""", (resource, limit))
                         if not free:
                             return None
@@ -330,6 +424,10 @@ class RunRepository:
                                 break
                         if chosen is None:
                             return None
+                        if keeper is not None:
+                            locked, _ = store._execute("SELECT GET_LOCK(CONCAT('dake:work:',%s),0) AS ok", (runner_id,))
+                            if locked[0]["ok"] != 1:
+                                raise RunConflict("本次领取未取得执行锁")
                         store._execute("""UPDATE runtime_limits SET owner=%s, epoch=epoch+1,
                             lease_until=DATE_ADD(NOW(6), INTERVAL %s SECOND)
                             WHERE resource=%s AND slot=%s""", (runner_id, lease, resource, slot["slot"]))

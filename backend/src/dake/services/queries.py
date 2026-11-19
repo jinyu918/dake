@@ -34,10 +34,11 @@ def duration_label(value: timedelta) -> str:
 class QueryService:
     """每次读取建立独立连接，查询必须限定客户和分析流。"""
 
-    def __init__(self, settings, store_factory=MySQLStore, *, attempts=None):
+    def __init__(self, settings, store_factory=MySQLStore, *, attempts=None, analytics_store=None):
         self.settings = settings
         self.store_factory = store_factory
         self.attempts = attempts if attempts is not None else AttemptRepository(settings, store_factory)
+        self.analytics_store = analytics_store
 
     @contextmanager
     def connection(self):
@@ -209,6 +210,21 @@ class QueryService:
                 items.append(event.to_dict())
             items = enrich_events(store, uid, items, load_sender_roles(self.settings.data_dir),
                                   load_sender_kinds(self.settings.data_dir))
+            for item in items:
+                # 旧版硬编码自由文本属性已下线，统一由 MongoDB 可配置结构化属性驱动展示。
+                item["typed_attributes"] = {}
+                item["attributes"] = {}
+            if self.analytics_store is not None and items:
+                mongo_docs = self.analytics_store.get_event_documents(
+                    stream, [item["event_id"] for item in items]
+                )
+                for item in items:
+                    mdoc = mongo_docs.get(item["event_id"])
+                    if mdoc is not None:
+                        item["primary_product"] = mdoc.get("primary_product")
+                        item["products"] = list(mdoc.get("products") or [])
+                        item["structured_props"] = dict(mdoc.get("props") or {})
+                        item["structured_evidence"] = list(mdoc.get("prop_evidence") or [])
             items.sort(key=lambda item: event_priority_sort_key(item, profiles.get(uid)))
         return {"items": items, "total": len(items)}
 

@@ -30,3 +30,24 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  mongo:
+    image: ${MONGO_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/mongo:7.0}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./data/mongo:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - db.adminCommand('ping').ok
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s

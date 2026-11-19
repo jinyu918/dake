@@ -1,7 +1,6 @@
 import {
   ArrowUpRight,
   Clock3,
-  FileText,
   History,
   MessagesSquare,
   UserRound,
@@ -18,21 +17,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from './ui/dialog';
-
-const attributeNames: Record<string, string> = {
-  resource_type: '资源类型',
-  quantity: '数量',
-  region: '地域',
-  deadline: '期望时间',
-  product: '产品',
-  product_line: '产品线',
-  impact: '影响范围',
-  specification: '规格',
-  intent: '意向',
-  reason: '原因',
-  amount: '金额',
-  next_step: '下一步',
-};
 
 /** 从当前事件或某一周期的快照展示详情，历史快照不会被最新状态替换。 */
 export function EventDetail({
@@ -137,26 +121,6 @@ export function EventDetail({
                 </div>
               </dl>
               <ClassificationDetails event={event} />
-              {Object.keys(event.attributes).length > 0 && (
-                <section className="detail-section">
-                  <h3>
-                    <FileText size={15} />
-                    补充信息
-                  </h3>
-                  <dl className="attributes">
-                    {Object.entries(event.attributes).map(([key, value]) => (
-                      <div key={key}>
-                        <dt>{attributeNames[key] || key}</dt>
-                        <dd>
-                          {typeof value === 'object'
-                            ? JSON.stringify(value)
-                            : String(value ?? '未知')}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </section>
-              )}
               <section className="detail-section">
                 <h3>
                   <MessagesSquare size={15} />

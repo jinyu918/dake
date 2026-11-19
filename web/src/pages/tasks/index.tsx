@@ -437,7 +437,7 @@ function ExecutionProgress({
       <div className="task-execution-heading">
         <div>
           <h3>
-            本次执行 <Status status={e.status} />
+            {finished ? '执行结果' : '本次执行'} <Status status={e.status} />
           </h3>
           <p>
             {formatRange(e.start, e.end)} ·{' '}
@@ -474,9 +474,11 @@ function ExecutionProgress({
             <span>
               {finished
                 ? '本次执行已结束'
-                : total
-                  ? '进度自动更新'
-                  : '正在准备本次执行范围'}
+                : e.status === 'queued'
+                  ? '等待后台处理'
+                  : total
+                    ? '进度自动更新'
+                    : '正在准备本次执行范围'}
             </span>
           </div>
           <progress
@@ -532,8 +534,8 @@ function ExecutionProgress({
         {[
           ['匹配客户', included.length],
           ['处理消息', e.processed],
-          ['排队', e.backlog],
-          ['占用额度', `${e.capacity_used} / ${e.capacity_total}`],
+          ['分析排队', e.backlog],
+          ['分析名额占用', `${e.capacity_used} / ${e.capacity_total}`],
           ['隔离', e.isolated_count],
           ['新建事件', e.created_events],
           ['更新事件', e.updated_events],

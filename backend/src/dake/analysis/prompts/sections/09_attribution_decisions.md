@@ -15,4 +15,4 @@
    - `basis` 为 `[{message_id, quote}]`，引用支持本次归属决定的连续原文片段，`message_id` 必须带完整来源前缀。
    - 明确决定（`new`/`update`/`duplicate`）至少提供一条 `new_messages` 依据；`update` 与 `duplicate` 还必须提供指向目标旧事件的旧证据（可从 `context_messages` 或 `history_context` 已提供的 `fragments` 中引用，不可引用截断之外或缺失的正文）。
    - 邻域聊天仅作参考，不能只凭同群、时间相近或关键词相同证明同一事件。
-   - `assignees`、`typed_attributes`、`status_proposal`、`priority_proposal`、`extensions` 仍须有本轮直接证据支持；无新依据时保持空值，重复消息不得输出新增状态事实。
+   - `assignees`、`status_proposal`、`priority_proposal` 仍须有本轮直接证据支持；无新依据时保持空值，重复消息不得输出新增状态事实。

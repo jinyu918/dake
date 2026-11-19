@@ -114,6 +114,10 @@ class EventSnapshot(APIModel):
     classification_status: Literal["已分类", "待分类"] = "已分类"
     other_reason: dict[str, JsonValue] | None = None
     typed_attributes: dict[str, dict[str, dict[str, JsonValue]]] = Field(default_factory=dict)
+    primary_product: str | None = None
+    products: list[str] = Field(default_factory=list)
+    structured_props: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
+    structured_evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
     topic_key: str | None
     start_time: str
     end_time: str

@@ -87,6 +87,8 @@ class Settings:
     mysql_database: str = "dake_aftersales"
     mysql_user: str = "dake"
     mysql_password: str = field(default="", repr=False)
+    mongo_uri: str = field(default="mongodb://127.0.0.1:27017", repr=False)
+    mongo_database: str = "dake_aftersales"
     chat_records_url: str = OFFICIAL_URL
     data_dir: Path = PROJECT_ROOT / "data"
     api_allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "testserver")
@@ -132,6 +134,8 @@ class Settings:
             mysql_database=get("MYSQL_DATABASE", "dake_aftersales"),
             mysql_user=get("MYSQL_USER", "dake"),
             mysql_password=get("MYSQL_PASSWORD", ""),
+            mongo_uri=get("MONGO_URI", f"mongodb://127.0.0.1:{get('MONGO_PORT', '27017')}"),
+            mongo_database=get("MONGO_DATABASE", "dake_aftersales"),
             chat_records_url=get("CHAT_RECORDS_URL", OFFICIAL_URL),
             data_dir=data_dir.resolve(),
             api_allowed_hosts=tuple(host.strip() for host in get(
