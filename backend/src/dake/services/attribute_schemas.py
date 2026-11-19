@@ -3,6 +3,8 @@
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
+from threading import Lock
+from uuid import uuid4
 from typing import Any
 
 from ..analysis.providers.xhub import XHubConfig, configured_stream
@@ -79,6 +81,9 @@ class AttributeSchemaService:
         analytics_store=None,
         extractor_factory: Callable[[Settings], XHubStructuredExtractor] | None = None,
     ) -> None:
+        self._job_lock = Lock()
+        self._job = {"status": "idle"}
+        self._worker = ThreadPoolExecutor(max_workers=1)
         self.settings = settings
         self.store_factory = store_factory
         self.analytics = analytics_store or MongoAnalyticsStore(settings)
@@ -177,6 +182,29 @@ class AttributeSchemaService:
         finally:
             if extractor is not None:
                 extractor.close()
+
+    def backfill_status(self):
+        """读取最近一次后台补齐的状态。"""
+        with self._job_lock:
+            return self._job.copy()
+
+    def submit_backfill(self, options):
+        """本地服务同时只执行一次补齐，避免重复调用模型。"""
+        with self._job_lock:
+            if self._job["status"] == "running":
+                raise RuntimeError("已有历史字段补齐任务正在执行")
+            job = {"status": "running", "job_id": uuid4().hex}
+            self._worker.submit(self._run_backfill, job, options)
+            self._job = job
+            return job.copy()
+
+    def _run_backfill(self, job, options):
+        try:
+            result = {"status": "completed", "result": self.backfill(**options)}
+        except Exception:
+            result = {"status": "failed"}
+        with self._job_lock:
+            self._job = {**job, **result}
 
     def backfill(
         self,

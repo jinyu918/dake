@@ -2692,6 +2692,136 @@
         }
       }
     },
+    "/api/v1/attribute-schemas/backfill-job": {
+      "get": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Get Attribute Backfill Job",
+        "operationId": "get_attribute_backfill_job",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeBackfillJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "attribute_schemas"
+        ],
+        "summary": "Submit Attribute Backfill Job",
+        "operationId": "submit_attribute_backfill_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AttributeBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttributeBackfillJob"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/attribute-schemas/backfill": {
       "post": {
         "tags": [
@@ -3111,6 +3241,43 @@
         ],
         "title": "AnalyticsEventItem",
         "description": "聚合视图下钻展示的轻量事件摘要。"
+      },
+      "AttributeBackfillJob": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "running",
+              "completed",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "job_id": {
+            "type": "string",
+            "title": "Job Id",
+            "default": ""
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AttributeBackfillResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "job_id",
+          "result"
+        ],
+        "title": "AttributeBackfillJob",
+        "description": "后台补齐的执行状态与完成统计。"
       },
       "AttributeBackfillRequest": {
         "properties": {

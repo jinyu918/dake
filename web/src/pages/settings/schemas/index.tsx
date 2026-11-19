@@ -6,7 +6,7 @@ import {
   Plus,
   RefreshCw,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ErrorNotice, LoadingRows } from '@/components/Feedback';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeading } from '@/components/ui/dialog';
@@ -114,6 +114,17 @@ export default function AttributeSchemasPage() {
       : null,
     (signal) => api.productAnalytics(analyticsProduct, analyticsType, signal),
   );
+
+  const job = useResource(
+    'attribute-backfill-job',
+    api.backfillStatus,
+    2000,
+    (data) => data.status === 'running',
+  );
+  const refreshAnalytics = analytics.refresh;
+  useEffect(() => {
+    if (job.data?.status === 'completed') refreshAnalytics();
+  }, [job.data, refreshAnalytics]);
 
   const products = registry.data?.products || [];
   const fields = registry.data?.fields || [];
@@ -401,14 +412,12 @@ export default function AttributeSchemasPage() {
         if (backfillProduct) payload.product_key = backfillProduct;
         if (backfillEventType) payload.event_type = backfillEventType;
       }
-      const res = await api.backfillAttributeSchemas(payload);
+      await api.submitBackfill(payload);
       setBackfillOpen(false);
-      setNotice(
-        `已完成历史事件字段补齐：共扫描 ${res.scanned} 条事件，成功更新 ${res.updated} 条（智能提取 ${res.llm_enriched} 条${res.failed ? `，失败 ${res.failed} 条` : ''}）。`,
-      );
-      analytics.refresh();
+      job.refresh();
     } catch (cause) {
       setError(errorMessage(cause));
+      job.refresh();
     } finally {
       setBusy(false);
     }
@@ -476,7 +485,7 @@ export default function AttributeSchemasPage() {
         <div className="schemas-header-actions">
           <Button
             variant="secondary"
-            disabled={!registry.data}
+            disabled={!registry.data || job.data?.status === 'running'}
             onClick={openBackfill}
           >
             <History size={15} />
@@ -505,6 +514,21 @@ export default function AttributeSchemasPage() {
         </div>
       </header>
 
+      {job.data?.status === 'running' && (
+        <p role="status" className="schemas-save-notice">
+          历史字段正在后台补齐，可以离开此页。
+        </p>
+      )}
+      {job.data?.result && (
+        <p role="status" className="schemas-save-notice">
+          本次历史字段补齐结束，已更新 {job.data.result.updated} 条，失败{' '}
+          {job.data.result.failed} 条。
+        </p>
+      )}
+      {job.data?.status === 'failed' && (
+        <ErrorNotice message="后台补齐失败，请核对执行情况后再试。" />
+      )}
+      {job.error && <ErrorNotice message={job.error} retry={job.refresh} />}
       {notice && (
         <p role="status" className="schemas-save-notice">
           <Check size={16} aria-hidden="true" />
@@ -1159,7 +1183,7 @@ export default function AttributeSchemasPage() {
               ) : (
                 <History size={15} />
               )}
-              {busy ? '正在补齐中…' : '开始补齐'}
+              {busy ? '正在提交…' : '开始补齐'}
             </Button>
           </div>
         </DialogContent>

@@ -1,5 +1,7 @@
 """可配置产品目录、结构化字段定义与 MongoDB 聚合汇总 HTTP 数据合约。"""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 from ..domain.attribute_schemas import AggOp, FieldDataType, ScopeType, UnitFamily
@@ -148,6 +150,14 @@ class AttributeBackfillResponse(APIModel):
     llm_enriched: int
     failed: int
     schema_version: int
+
+
+class AttributeBackfillJob(APIModel):
+    """后台补齐的执行状态与完成统计。"""
+
+    status: Literal["idle", "running", "completed", "failed"]
+    job_id: str = ""
+    result: AttributeBackfillResponse | None = None
 
 
 class ProductOverviewStat(APIModel):

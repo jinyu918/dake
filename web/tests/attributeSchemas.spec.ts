@@ -89,16 +89,15 @@ async function mockSchemas(page: Page) {
         },
       });
     }
-    if (url.pathname.endsWith('/backfill')) {
+    if (url.pathname.endsWith('/backfill-job')) {
+      if (route.request().method() === 'GET')
+        return route.fulfill({
+          json: { status: backfills.length ? 'running' : 'idle' },
+        });
       backfills.push(route.request().postDataJSON());
       return route.fulfill({
         json: {
-          stream: 'synthetic',
-          scanned: 0,
-          updated: 0,
-          llm_enriched: 0,
-          failed: 0,
-          schema_version: version,
+          status: 'running',
         },
       });
     }
@@ -162,6 +161,7 @@ test('手机首屏可管理字段，切换到事件类型后从正确范围新�
       () => document.documentElement.scrollWidth === window.innerWidth,
     );
   expect(await viewportFits()).toBe(true);
+  await page.getByRole('button', { name: '事件类型', exact: true }).click();
   await page
     .getByRole('combobox', { name: '配置范围', exact: true })
     .selectOption('event_type:排障');

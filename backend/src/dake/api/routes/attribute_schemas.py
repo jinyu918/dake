@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...repositories.mongo_analytics import AnalyticsStorageError, SchemaConflictError
 from ..attribute_schema_schemas import (
+    AttributeBackfillJob,
     AttributeBackfillRequest,
     AttributeBackfillResponse,
     AttributeFieldDeleteRequest,
@@ -79,6 +80,19 @@ def delete_attribute_field(body: AttributeFieldDeleteRequest, deps: Deps):
         raise HTTPException(400, str(error)) from None
     except AnalyticsStorageError as error:
         raise HTTPException(503, str(error)) from None
+
+
+@router.get("/backfill-job", response_model=AttributeBackfillJob, operation_id="get_attribute_backfill_job")
+def get_attribute_backfill_job(deps: Deps):
+    return deps.attribute_schemas.backfill_status()
+
+
+@router.post("/backfill-job", status_code=202, response_model=AttributeBackfillJob, operation_id="submit_attribute_backfill_job")
+def submit_attribute_backfill_job(body: AttributeBackfillRequest, deps: Deps):
+    try:
+        return deps.attribute_schemas.submit_backfill(body.model_dump())
+    except RuntimeError as error:
+        raise HTTPException(409, str(error)) from None
 
 
 @router.post("/backfill", response_model=AttributeBackfillResponse, operation_id="backfill_attribute_schemas")
