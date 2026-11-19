@@ -1,11 +1,12 @@
 import {
-  backfillAttributeSchemas,
   deleteAttributeField,
   deleteProductSchema,
+  getAttributeBackfillJob,
   getProductAnalytics,
   listAttributeSchemas,
   saveAttributeField,
   saveProductSchema,
+  submitAttributeBackfillJob,
 } from './generated/attributeSchemas';
 import { getConfig } from './generated/config';
 import {
@@ -53,8 +54,9 @@ export const api = {
     saveAttributeField(body),
   deleteAttributeField: (body: API.AttributeFieldDeleteRequest) =>
     deleteAttributeField(body),
-  backfillAttributeSchemas: (body: API.AttributeBackfillRequest) =>
-    backfillAttributeSchemas(body),
+  backfillStatus: (signal?: AbortSignal) => getAttributeBackfillJob({ signal }),
+  submitBackfill: (body: API.AttributeBackfillRequest) =>
+    submitAttributeBackfillJob(body),
   productAnalytics: (productKey = '', eventType = '', signal?: AbortSignal) =>
     getProductAnalytics(
       {

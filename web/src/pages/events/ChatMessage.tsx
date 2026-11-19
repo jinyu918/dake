@@ -1,4 +1,5 @@
 import { ExpandableText } from './ExpandableText';
+import { hasImageLink, MessageImages } from './MessageImages';
 
 /** 只收起消息末尾明确标记的引用行，不猜测普通正文或图片内容。 */
 function splitReferenceFooter(lines: string[]) {
@@ -67,6 +68,15 @@ export function ChatMessage({
     ? parseQuotedReply(content) || parseFooterOnly(content)
     : null;
   if (!reply) {
+    const imageText = cleanExcerpt(content || excerpt);
+    if (hasImageLink(imageText))
+      return (
+        <div className="chat-bubble">
+          <div className="message-image-text">
+            <MessageImages text={imageText} />
+          </div>
+        </div>
+      );
     return (
       <div className="chat-bubble">
         <p>{cleanExcerpt(excerpt)}</p>
@@ -82,11 +92,17 @@ export function ChatMessage({
   return (
     <>
       <div className="chat-bubble">
-        <ExpandableText
-          text={reply.body}
-          lines={4}
-          className="chat-reply-text"
-        />
+        {hasImageLink(reply.body) ? (
+          <div className="message-image-text">
+            <MessageImages text={reply.body} />
+          </div>
+        ) : (
+          <ExpandableText
+            text={reply.body}
+            lines={4}
+            className="chat-reply-text"
+          />
+        )}
       </div>
       <details className="chat-quote">
         <summary title="展开或收起引用">
@@ -95,11 +111,20 @@ export function ChatMessage({
           </span>
         </summary>
         <div className="chat-quote-content">
-          <p>{reply.quote}</p>
+          {hasImageLink(reply.quote) ? (
+            <div className="message-image-text">
+              <MessageImages text={reply.quote} />
+            </div>
+          ) : (
+            <p>{reply.quote}</p>
+          )}
           {reply.source && reply.source !== reply.quote ? (
-            <p className="chat-quote-source">引用来源：{reply.source}</p>
+            <div className="chat-quote-source">
+              引用来源：
+              <MessageImages text={reply.source} />
+            </div>
           ) : null}
-          {reply.quote.includes('[图片]') ? (
+          {reply.quote.includes('[图片]') && !hasImageLink(reply.quote) ? (
             <p>仅记录图片标记，未提供图片内容。</p>
           ) : null}
           <details>

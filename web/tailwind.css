@@ -1356,3 +1356,11 @@ select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2p
 .handoff-age.yellow { background: #fef9c3; color: #713f12; }
 .handoff-age.orange { background: #ffedd5; color: #9a3412; }
 .handoff-age.red { background: #fee2e2; color: #991b1b; }
+
+.message-image-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-thumbnail { display: block; max-width: 100%; margin-block: 4px; cursor: zoom-in; }
+.message-thumbnail img { display: block; max-width: min(240px, 100%); max-height: 160px; border-radius: 5px; }
+.message-image-preview[open] { position: fixed; inset: 0; margin: auto; width: fit-content; max-width: 95vw; max-height: 95dvh; padding: 12px; border-radius: 8px; background: white; }
+.message-image-preview::backdrop { background: rgb(0 0 0 / 70%); }
+.message-image-preview button { display: block; margin: 0 0 8px auto; }
+.message-image-preview img { display: block; max-width: 88vw; max-height: 80dvh; object-fit: contain; }

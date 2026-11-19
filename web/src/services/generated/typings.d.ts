@@ -71,6 +71,14 @@ declare namespace API {
     prop_evidence: Record<string, any>[];
   };
 
+  type AttributeBackfillJob = {
+    /** Status */
+    status: "idle" | "running" | "completed" | "failed";
+    /** Job Id */
+    job_id: string;
+    result: AttributeBackfillResponse | null;
+  };
+
   type AttributeBackfillRequest = {
     /** Uid */
     uid?: string;

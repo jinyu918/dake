@@ -49,6 +49,34 @@ export async function backfillAttributeSchemas(
   );
 }
 
+/** Get Attribute Backfill Job GET /api/v1/attribute-schemas/backfill-job */
+export async function getAttributeBackfillJob(options?: {
+  signal?: AbortSignal;
+}) {
+  return request<API.AttributeBackfillJob>(
+    "/api/v1/attribute-schemas/backfill-job",
+    {
+      method: "GET",
+      ...(options || {}),
+    }
+  );
+}
+
+/** Submit Attribute Backfill Job POST /api/v1/attribute-schemas/backfill-job */
+export async function submitAttributeBackfillJob(
+  body: API.AttributeBackfillRequest,
+  options?: { signal?: AbortSignal }
+) {
+  return request<any>("/api/v1/attribute-schemas/backfill-job", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    data: body,
+    ...(options || {}),
+  });
+}
+
 /** Save Attribute Field POST /api/v1/attribute-schemas/fields */
 export async function saveAttributeField(
   body: API.AttributeFieldSaveRequest,
