@@ -438,21 +438,21 @@ test('工作台无需新消息即可越过 6、12、24 小时，接手或终态�
   await expect(page.locator('.handoff-age')).toHaveCount(0);
   await page.clock.runFor(1);
   await expect(list.locator('.handoff-age.yellow')).toHaveText(
-    '未接手超 6 小时',
+    '超 6 小时未处理',
   );
   await expect(page.locator('.inbox-aside .handoff-age')).toHaveText(
-    '未接手超 6 小时',
+    '超 6 小时未处理',
   );
   await page.clock.fastForward(6 * hour - 1);
   await expect(list.locator('.handoff-age.yellow')).toHaveCount(1);
   await page.clock.runFor(1);
   await expect(list.locator('.handoff-age.orange')).toHaveText(
-    '未接手超 12 小时',
+    '超 12 小时未处理',
   );
   await page.clock.fastForward(12 * hour - 1);
   await expect(list.locator('.handoff-age.orange')).toHaveCount(1);
   await page.clock.runFor(1);
-  await expect(list.locator('.handoff-age.red')).toHaveText('未接手超 24 小时');
+  await expect(list.locator('.handoff-age.red')).toHaveText('超 24 小时未处理');
   await expect(
     list.getByRole('listitem').first().getByText('P2', { exact: true }),
   ).toBeVisible();

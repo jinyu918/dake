@@ -306,4 +306,4 @@ Linux / WSL 可用用户服务保持本地后端运行：先执行 `.venv/bin/py
 
 工作台按自然时间计算未接手标签。严格超过 6、12、24 小时分别显示黄、橙、红。已验证接手或进入终态会清除标签。该标签不修改优先级；旧记录中的自动超时提档在读取时还原为原业务优先级，人工锁优先。
 
-消息正文为 JSON，必填 `schema`（`dake.synthetic-alert-v1`）、`source`（与配置相同）、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）和 `severity`。当确认受影响客户时，`affected_uid` 须与当前上报客户 UID 一致。同一 `source`、`alert_id`、`round_id` 汇总到一个告警轮次。独立告警使用不同的 `round_id`。已识别的告警与恢复从事项模型的当前输入及旧聊天背景中排除。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复预览间隔。提醒预览与轮次同事务保存，先收到恢复时，补到更早的触发仅生成按事件时间记录的历史首次预览，轮次保持已恢复。工作台展开「机器人告警预览」查看轮次和历史首次预览，客户选择器同步限定预览范围。此入口只生成预览。
+消息正文为 JSON，必填 `schema`（`dake.synthetic-alert-v1`）、`source`（与配置相同）、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）和 `severity`。当确认受影响客户时，`affected_uid` 须与当前上报客户 UID 一致。同一 `source`、`alert_id`、`round_id` 汇总到一个告警轮次。独立告警使用不同的 `round_id`。已识别的告警与恢复从事项模型的当前输入及旧聊天背景中排除。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复预览间隔。提醒预览与轮次同事务保存，先收到恢复时，补到更早的触发仅生成按事件时间记录的历史首次预览，轮次保持已恢复。在工作台事件列表按客户查看对应告警及其状态。

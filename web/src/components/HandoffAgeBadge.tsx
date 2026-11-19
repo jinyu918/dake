@@ -54,7 +54,7 @@ export function HandoffAgeBadge({ event }: { event: HandoffEvent }) {
     .at(-1);
   return band ? (
     <span className={`handoff-age ${band.tone}`}>
-      未接手超 {band.hours} 小时
+      超 {band.hours} 小时未处理
     </span>
   ) : null;
 }
