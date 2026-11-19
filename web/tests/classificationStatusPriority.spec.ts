@@ -313,7 +313,7 @@ test('同档优先按超时、保存等级、响应信号、绝对截止时间�
   ]);
 });
 
-test('工作台合并客户事项并按客户范围读取告警预览', async ({ page }) => {
+test('工作台合并客户事项，切换范围时仅展示事项', async ({ page }) => {
   const firstUid = '100000001';
   const secondUid = '100000002';
   const first = workbenchItem('跨客户早到期', 'L6');
@@ -342,30 +342,7 @@ test('工作台合并客户事项并按客户范围读取告警预览', async ({
       });
     } else if (url.pathname.endsWith('/alert-previews')) {
       alertScopes.push(uid);
-      await route.fulfill({
-        json: {
-          items: [
-            {
-              source: 'local-fixture',
-              alert_id: 'fixture-alert',
-              round_id: 'fixture-round',
-              priority: 'P1',
-              state: '已恢复',
-              queue: '值班或 TAM',
-              pending: false,
-              reminders: [
-                {
-                  message_id: 'fixture-trigger',
-                  at: '2038-06-01T01:00:00Z',
-                  priority: 'P1',
-                  route: '值班或 TAM',
-                  kind: '历史首次触发',
-                },
-              ],
-            },
-          ],
-        },
-      });
+      await route.fulfill({ json: { items: [] } });
     } else {
       await route.fulfill({ json: {} });
     }
@@ -375,11 +352,13 @@ test('工作台合并客户事项并按客户范围读取告警预览', async ({
     '跨客户早到期',
     '跨客户晚到期',
   ]);
-  await page.getByText('机器人告警预览', { exact: true }).click();
-  await expect(page.getByText(/历史首次触发/)).toBeVisible();
+  await expect(page.getByText('机器人告警预览', { exact: true })).toHaveCount(
+    0,
+  );
   await page.goto(`/events?uid=${firstUid}`);
   await expect(page.locator('.event-row-preview')).toHaveText(['跨客户早到期']);
-  await page.getByText('机器人告警预览', { exact: true }).click();
-  await expect(page.getByText(/历史首次触发/)).toBeVisible();
-  expect(alertScopes).toEqual([null, firstUid]);
+  await expect(page.getByText('机器人告警预览', { exact: true })).toHaveCount(
+    0,
+  );
+  expect(alertScopes).toEqual([]);
 });
