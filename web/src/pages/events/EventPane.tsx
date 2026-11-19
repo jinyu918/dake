@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ClassificationDetails } from '@/components/ClassificationDetails';
 import { PriorityBadge, StatusBadge } from '@/components/EventBadges';
 import { EventType, eventDisplayLabels } from '@/components/EventType';
+import { HandoffAgeBadge } from '@/components/HandoffAgeBadge';
 import { ManualDecisionDialog } from '@/components/ManualDecisionDialog';
 import { formatTime } from '@/lib/utils';
 import { api } from '@/services/api';
@@ -246,6 +247,8 @@ export function EventPane({
   }, [showContext, event.event_id, event.uid, event.stream]);
 
   const tierBadge = customerTierBadge(customer);
+  const alert =
+    event.type === '机器人告警' ? event.extensions?.robot_alert : null;
   const labels = eventDisplayLabels(event);
   const controls = event.manual_controls || {};
   const priorityNote =
@@ -452,11 +455,30 @@ export function EventPane({
                   detail={event.priority_detail}
                   locked={Boolean(controls.priority?.locked)}
                 />
+                <HandoffAgeBadge event={event} />
                 {priorityNote ? (
                   <small className="aside-field-note">{priorityNote}</small>
                 ) : null}
               </dd>
             </div>
+            {alert && (
+              <div>
+                <dt>告警轮次</dt>
+                <dd>
+                  {alert.round_id} · {alert.state}
+                </dd>
+                <dd>
+                  {alert.queue}
+                  {alert.pending ? ' · 影响客户待核实' : ''}
+                </dd>
+                {alert.triggered_at && (
+                  <dd>触发 {formatTime(alert.triggered_at)}</dd>
+                )}
+                {alert.recovered_at && (
+                  <dd>恢复 {formatTime(alert.recovered_at)}</dd>
+                )}
+              </div>
+            )}
             <div>
               <dt>客户 UID</dt>
               <dd className="aside-customer-value">

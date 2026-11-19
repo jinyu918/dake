@@ -13,7 +13,7 @@ from ..analysis.summary_changes import (
     prepare_summary,
     validate_changes,
 )
-from ..analysis.updates import apply_candidate, has_structured_change
+from ..analysis.updates import apply_candidate, explicit_handoff_times, has_structured_change
 from ..analysis.validation import candidate_times, validate_priority_evidence
 from ..config import REVIEW
 from ..domain.models import message_order
@@ -319,6 +319,7 @@ def apply_attributions(
                 record["action"] == "update"
                 and (
                     candidate.changes != []
+                    or explicit_handoff_times(candidate, available, new_keys, sender_roles)
                     or has_structured_change(candidate, old, available, customer_profile=customer_profile)
                 )
             ):
@@ -335,6 +336,7 @@ def apply_attributions(
                     for c, r, b in accepted
                     if c.changes is None
                     or b is not None
+                    or explicit_handoff_times(c, available, new_keys, sender_roles)
                     or has_structured_change(c, old, available, customer_profile=customer_profile)
                     or bool(prepare_summary(c, old, available)[1])
                 ]

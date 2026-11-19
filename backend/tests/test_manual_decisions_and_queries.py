@@ -605,8 +605,8 @@ def test_alert_preview_http_returns_only_preview_fields_in_requested_scope(tmp_p
     store = MemoryStore()
     calls = []
 
-    def previews(source, uid, limit):
-        calls.append((source, uid, limit))
+    def previews(source, uid, stream, limit):
+        calls.append((source, uid, stream, limit))
         return [dict(source=source, alert_id="fixture", round_id="r1", state="已恢复", priority="P1",
                      queue="值班或 TAM", pending=False, members=[uid], affected_uids=[uid], reminders=[])]
 
@@ -627,4 +627,4 @@ def test_alert_preview_http_returns_only_preview_fields_in_requested_scope(tmp_p
             assert (await client.get("/api/v1/alert-previews", params=dict(limit=201))).status_code == 422
 
     asyncio.run(exercise())
-    assert calls == ([("local-fixture", UID, 3)] if enabled else [])
+    assert calls == ([("local-fixture", UID, "stub-v1", 3)] if enabled else [])

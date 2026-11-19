@@ -9,6 +9,7 @@ import {
 import { useState } from 'react';
 import { EventDetail } from '@/components/EventDetail';
 import { EventType, eventDisplayLabels } from '@/components/EventType';
+import { HandoffAgeBadge } from '@/components/HandoffAgeBadge';
 import { formatTime } from '@/lib/utils';
 
 /** 从本轮保存的事件快照展示变化，不用当前最终事件覆盖历史证据。 */
@@ -143,6 +144,7 @@ export function CyclePanel({
                           {eventDisplayLabels(item).join(' / ')}
                           <span>·</span>
                           {item.priority || '待评估'}
+                          <HandoffAgeBadge event={item} />
                           <span>·</span>
                           {item.lifecycle_status || item.status}
                           <span>·</span>

@@ -278,7 +278,7 @@ function workbenchItem(
   });
 }
 
-test('同档优先按超时、保存等级、响应信号、绝对截止时间及事件 ID 排序', () => {
+test('同档按保存等级、响应信号及截止时间排序，旧超时信号不改变顺序', () => {
   const fixtures = [
     workbenchItem('late-due', 'L6', { due: '2038-06-01T03:00:00Z' }),
     workbenchItem('early-due'),
@@ -300,7 +300,6 @@ test('同档优先按超时、保存等级、响应信号、绝对截止时间�
   expect(
     fixtures.sort(compareEventsByPriority).map((item) => item.event_id),
   ).toEqual([
-    'overdue',
     'higher-level',
     'emotion',
     'followup',
@@ -308,12 +307,15 @@ test('同档优先按超时、保存等级、响应信号、绝对截止时间�
     'b-tie',
     'early-due',
     'late-due',
+    'overdue',
     'review-first',
     'review-later',
   ]);
 });
 
-test('工作台合并客户事项，切换范围时仅展示事项', async ({ page }) => {
+test('工作台混排机器人告警，筛选客户并按保存的轮次打开详情', async ({
+  page,
+}) => {
   const firstUid = '100000001';
   const secondUid = '100000002';
   const first = workbenchItem('跨客户早到期', 'L6');
@@ -321,13 +323,30 @@ test('工作台合并客户事项，切换范围时仅展示事项', async ({ pa
     uid: secondUid,
     due: '2038-06-01T03:00:00Z',
   });
-  const alertScopes: Array<string | null> = [];
+  const alert = (round: string, uid: string, priority: 'P1' | 'P2') =>
+    makeEvent({
+      event_id: `${uid}-${round}`,
+      uid,
+      type: '机器人告警',
+      types: ['机器人告警'],
+      summary: `规则一 · ${round} · 告警中`,
+      priority,
+      lifecycle_status: '跟进中',
+      extensions: {
+        robot_alert: { round_id: round, state: '告警中', queue: '客户负责人' },
+      },
+    });
+  const firstRound = alert('轮次一', firstUid, 'P2');
+  const secondRound = alert('轮次二', firstUid, 'P2');
+  const foreign = alert('其他客户轮次', secondUid, 'P2');
+  let previewRequests = 0;
   await page.route('**/api/v1/**', async (route) => {
     const url = new URL(route.request().url());
     const uid = url.searchParams.get('uid');
     if (url.pathname.endsWith('/config')) {
       await route.fulfill({
         json: {
+          filter_event_types: ['商机', '机器人告警'],
           customers: [firstUid, secondUid].map((id) => ({
             uid: id,
             label: `合成客户 ${id}`,
@@ -337,28 +356,104 @@ test('工作台合并客户事项，切换范围时仅展示事项', async ({ pa
         },
       });
     } else if (url.pathname.endsWith('/events')) {
-      await route.fulfill({
-        json: { items: uid === firstUid ? [first] : [second], total: 1 },
-      });
-    } else if (url.pathname.endsWith('/alert-previews')) {
-      alertScopes.push(uid);
-      await route.fulfill({ json: { items: [] } });
+      const type = url.searchParams.get('type');
+      const items = (
+        uid === firstUid ? [first, secondRound, firstRound] : [second, foreign]
+      ).filter((item) => !type || item.types.includes(type));
+      await route.fulfill({ json: { items, total: items.length } });
     } else {
+      if (url.pathname.endsWith('/alert-previews')) previewRequests++;
       await route.fulfill({ json: {} });
     }
   });
   await page.goto('/events');
-  await expect(page.locator('.event-row-preview')).toHaveText([
-    '跨客户早到期',
-    '跨客户晚到期',
+  const rows = page.locator('.event-row-preview');
+  await expect(rows).toHaveText([
+    first.summary,
+    second.summary,
+    firstRound.summary,
+    secondRound.summary,
+    foreign.summary,
   ]);
+  await expect(page.getByLabel('正在读取')).toHaveCount(0);
+  await page.getByRole('button', { name: /规则一 · 轮次二/ }).click();
+  await expect(
+    page.getByText('轮次二 · 告警中', { exact: true }),
+  ).toBeVisible();
+  await page.goto(`/events?uid=${firstUid}&type=机器人告警`);
+  await expect(rows).toHaveText([firstRound.summary, secondRound.summary]);
   await expect(page.getByText('机器人告警预览', { exact: true })).toHaveCount(
     0,
   );
-  await page.goto(`/events?uid=${firstUid}`);
-  await expect(page.locator('.event-row-preview')).toHaveText(['跨客户早到期']);
-  await expect(page.getByText('机器人告警预览', { exact: true })).toHaveCount(
-    0,
+  expect(previewRequests).toBe(0);
+});
+
+test('工作台无需新消息即可越过 6、12、24 小时，接手或终态后清除标签', async ({
+  page,
+}) => {
+  const start = Date.parse('2038-06-01T00:00:00Z');
+  const hour = 3_600_000;
+  await page.clock.install({ time: start + 6 * hour - 20_000 });
+  const event = makeEvent({
+    start_time: new Date(start).toISOString(),
+    lifecycle_status: '跟进中',
+    closed_at: null,
+    priority_detail: null,
+    priority: 'P2',
+  });
+  const accepted = makeEvent({
+    ...event,
+    event_id: 'accepted',
+    priority: 'P3',
+    priority_detail: { handoff_wait: { accepted_at: '2038-06-01T01:00:00Z' } },
+  });
+  const closed = makeEvent({
+    ...event,
+    event_id: 'closed',
+    lifecycle_status: '已解决',
+  });
+  await page.route('**/api/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    await route.fulfill({
+      json: path.endsWith('/config')
+        ? {
+            customers: [
+              {
+                uid: event.uid,
+                label: '合成客户',
+                stream: event.stream,
+                event_count: 3,
+              },
+            ],
+          }
+        : path.endsWith('/events')
+          ? { items: [event, accepted, closed], total: 3 }
+          : {},
+    });
+  });
+  await page.goto('/events');
+  const list = page.getByRole('list', { name: '售后事件' });
+  await expect(list.getByRole('listitem')).toHaveCount(3);
+  await page.clock.pauseAt(start + 6 * hour);
+  await expect(page.locator('.handoff-age')).toHaveCount(0);
+  await page.clock.runFor(1);
+  await expect(list.locator('.handoff-age.yellow')).toHaveText(
+    '未接手超 6 小时',
   );
-  expect(alertScopes).toEqual([]);
+  await expect(page.locator('.inbox-aside .handoff-age')).toHaveText(
+    '未接手超 6 小时',
+  );
+  await page.clock.fastForward(6 * hour - 1);
+  await expect(list.locator('.handoff-age.yellow')).toHaveCount(1);
+  await page.clock.runFor(1);
+  await expect(list.locator('.handoff-age.orange')).toHaveText(
+    '未接手超 12 小时',
+  );
+  await page.clock.fastForward(12 * hour - 1);
+  await expect(list.locator('.handoff-age.orange')).toHaveCount(1);
+  await page.clock.runFor(1);
+  await expect(list.locator('.handoff-age.red')).toHaveText('未接手超 24 小时');
+  await expect(
+    list.getByRole('listitem').first().getByText('P2', { exact: true }),
+  ).toBeVisible();
 });

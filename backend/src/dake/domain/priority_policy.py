@@ -256,9 +256,24 @@ def event_priority_sort_key(event: dict, customer_profile: dict | None = None) -
         due = datetime.fromisoformat(deadline).timestamp() if deadline else float("inf")
     except (TypeError, ValueError):
         due = float("inf")
-    overdue = bool(clock.get("overdue") or clock.get("review_due")) and clock.get("phase") != "stopped"
     response = 0 if detail.get("escalated_emotion") else 1 if detail.get("strong_followup") else 2
     review = 0 if detail.get("review_required") else 1
     if rank == PRIORITY_RANKS["待评估"]:
         return (ended, rank, review, due, event.get("event_id", ""))
-    return (ended, rank, not overdue, -level_num, response, due, event.get("event_id", ""))
+    return (ended, rank, -level_num, response, due, event.get("event_id", ""))
+
+
+def clear_legacy_timeout_upgrade(event):
+    from .manual_controls import is_locked
+
+    detail = event.priority_detail or {}
+    clock = detail.get("clock") or {}
+    if not clock.get("timeout_priority"):
+        return
+    suggested = detail.get("pre_timer_priority") or clock.get("pre_timer_priority")
+    if suggested in PRIORITIES and not is_locked(event, "priority") and event.priority == clock["timeout_priority"]:
+        if event.severity == event.priority:
+            event.severity = suggested
+        event.priority = suggested
+    event.priority_detail = dict(detail, priority=event.priority,
+                                 clock={key: value for key, value in clock.items() if key != "timeout_priority"})

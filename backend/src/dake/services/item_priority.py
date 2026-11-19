@@ -35,10 +35,7 @@ def refresh_item_priority(event, profile_reader, calendar=None, now=None):
     if detail.get("clock"):
         clock = evaluate_clock(detail["clock"], updated, calendar, now or datetime.now(TZ))
         updated["clock"] = clock
-    else:
-        clock = {}
-    result = clock.get("timeout_priority") if clock.get("overdue") and clock.get("phase") != "stopped" else None
-    adopted = event.priority if is_locked(event, "priority") else result or suggested
+    adopted = event.priority if is_locked(event, "priority") else suggested
     updated.update(rule_version=ITEM_PRIORITY_RULE_VERSION, effective_customer_uid=best_uid if best_rank >= 0 else None,
                    affected_customers_pending=any(fact["status"] == "pending" for fact in facts),
                    customer_priority=customer_priority, pre_timer_priority=suggested, priority=adopted)

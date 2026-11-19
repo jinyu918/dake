@@ -43,21 +43,12 @@ export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
       <h3>事项定级与证据</h3>
       <p>
         基础档 {event.base_priority} · 客户调整后{' '}
-        {String(priority.customer_priority ?? '待评估')} · 计时前{' '}
+        {String(priority.customer_priority ?? '待评估')} · 自动建议{' '}
         {String(priority.pre_timer_priority ?? '待评估')} · 生效{' '}
         {event.priority}
       </p>
       {event.manual_controls?.priority?.locked ? (
-        <p>
-          当前自动建议{' '}
-          {String(
-            (clock.overdue &&
-              clock.phase !== 'stopped' &&
-              clock.timeout_priority) ||
-              priority.pre_timer_priority ||
-              '待评估',
-          )}
-        </p>
+        <p>当前自动建议 {String(priority.pre_timer_priority || '待评估')}</p>
       ) : null}
       {priority.escalated_emotion ? <p>客户情绪明显升级</p> : null}
       {priority.strong_followup ? <p>客户强催办</p> : null}
@@ -82,9 +73,6 @@ export function ItemPriorityDetails({ event }: { event: API.EventResponse }) {
             : ''}
           {typeof clock.review_at === 'string' && clock.paused_at
             ? ` · 暂停至复查 ${formatTime(clock.review_at)}`
-            : ''}
-          {clock.overdue
-            ? ` · 已超时，建议 ${String(clock.timeout_priority)}`
             : ''}
         </p>
       )}

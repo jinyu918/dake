@@ -68,9 +68,7 @@ export function compareEventsByPriority(
       : detail?.strong_followup
         ? 1
         : 2;
-    const overdue =
-      clock.phase !== 'stopped' && (clock.overdue || clock.review_due);
-    return [ended, rank, Number(!overdue), -level, response, due];
+    return [ended, rank, -level, response, due];
   }
   const leftKeys = keys(left);
   const rightKeys = keys(right);
@@ -114,7 +112,6 @@ export function PriorityBadge({
       {!compact && vipBoosted && basePriority && basePriority !== value && (
         <small className="priority-pill-sub">基 {basePriority}</small>
       )}
-      {clock.phase !== 'stopped' && clock.overdue ? <small>超时</small> : null}
       {clock.review_due ? <small>复查到期</small> : null}
       {basePriority === '待评估' && value !== '待评估' ? (
         <small>影响待评估</small>

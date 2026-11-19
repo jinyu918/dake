@@ -7,6 +7,7 @@ import json
 import re
 
 from ..config import HistoryRetrievalSettings
+from ..domain.alert_policy import ALERT_EVENT_TYPE
 from ..domain.models import Event, Message, parse_time
 from ..analysis.continuity import recovery_is_safe
 
@@ -180,6 +181,8 @@ class HistoryRetriever:
             for event in snapshots:
                 if (event.uid, event.stream) != (uid, stream) or event.event_id not in by_id:
                     raise ValueError("历史快照越过客户或分析流范围")
+                if event.type == ALERT_EVENT_TYPE:
+                    continue
                 head = by_id[event.event_id]
                 try:
                     valid = (event.created_on < before and event.start_time <= event.end_time < before

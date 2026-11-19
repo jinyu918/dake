@@ -16,7 +16,6 @@ MINUTES = {
     "P3": ((120, 240), (240, 480), (480, 960)),
     "待评估": ((60, 60), (120, 120), (240, 240)),
 }
-TIMEOUT_PRIORITY = {"P2": "P1", "P3": "P2"}
 
 
 @dataclass(frozen=True)
@@ -130,6 +129,6 @@ def evaluate_clock(clock, detail, calendar, now):
     review = parse_time(clock["review_at"]) if paused_at else None
     review_due = bool(review and now >= review)
     next_check = (review if not review_due else None) if paused_at else (deadline if not overdue else None)
-    return dict(clock, calendar=calendar.to_dict(), pre_timer_priority=priority, deadline=deadline.isoformat(), overdue=overdue,
-                review_due=review_due, next_check=next_check.isoformat() if next_check else None,
-                timeout_priority=TIMEOUT_PRIORITY.get(priority, priority) if overdue else None)
+    return dict({key: value for key, value in clock.items() if key != "timeout_priority"},
+                calendar=calendar.to_dict(), pre_timer_priority=priority, deadline=deadline.isoformat(), overdue=overdue,
+                review_due=review_due, next_check=next_check.isoformat() if next_check else None)

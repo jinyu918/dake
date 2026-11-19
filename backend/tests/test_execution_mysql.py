@@ -436,3 +436,57 @@ def test_attempt_reads_and_mutations_reject_foreign_scope(case):
         with pytest.raises(DeliveryError):
             case.attempts.delivery(uid, stream, result.attempt_id, "files", "failed")
     assert case.latest() == original
+
+
+def test_alert_events_upgrade_with_optional_legacy_tables(case, monkeypatch):
+    from datetime import timedelta
+    from pathlib import Path
+
+    from dake.api.schemas import EventResponse
+    from dake.domain.alert_policy import ALERT_SCHEMA
+    from dake.ingestion.stored import ScopedStore
+    from dake.repositories.pipeline import apply_statements
+    from dake.services.queries import QueryService
+
+    service = case.service
+    store = service.store
+    uid = case.uid
+    # 先核对新库不依赖旧告警表，再装入升级前的合成记录。
+    start = window(1).start
+    recovery = replace(message(uuid4().hex, 2), uid=uid, sender_id="fixture-bot", conversation_id="allowed",
+                       content="【告警恢复】\n告警ID：rule\n轮次ID：one")
+    assert store.legacy_alert_messages(recovery, dict(alert_id="rule", round_id="one")) == []
+    apply_statements(store, Path(__file__).resolve().parents[1] / "migrations/007_alert_preview.sql")
+    other_uid = "synthetic-mysql-" + uuid4().hex
+    trigger = replace(recovery, message_id=uuid4().hex, sent_at=start - timedelta(minutes=1),
+                      content=json.dumps(dict(schema=ALERT_SCHEMA, source="fixture", alert_id="rule", round_id="one",
+                                              kind="trigger", severity="warning", affected_uid=uid)))
+    foreign = replace(trigger, uid=other_uid, message_id=uuid4().hex)
+    for item in (trigger, foreign):
+        with store.transaction(item.uid):
+            store.upsert_messages([item])
+            store._execute("INSERT INTO alert_preview_deliveries (source,message_id) VALUES (%s,%s)",
+                           ("fixture", item.key))
+    old_round = json.dumps(dict(members=[uid, other_uid], triggered_at=trigger.sent_at.isoformat()))
+    with store.transaction(uid):
+        store._execute("INSERT INTO alert_preview_rounds (source,alert_id,round_id,payload) VALUES (%s,%s,%s,%s)",
+                       ("fixture", "rule", "one", old_round))
+    monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
+        (uid, recovery.source, recovery.sender_id, recovery.conversation_id): "bot"})
+    service.store = ScopedStore(store, {"allowed"})
+    service.source = FakeSource([recovery])
+    service.ingestion.source = service.source
+    cycle = service._run_window(uid, window(2))
+    event, = store.list_events(uid, service.stream)
+    assert cycle.created == [event.event_id]
+    assert event.lifecycle_status == "已解决"
+    assert {ref["message_id"] for ref in event.evidence} == {trigger.message_id, recovery.message_id}
+    assert event.extensions["robot_alert"]["members"] == [uid]
+    assert event.extensions["robot_alert"]["reminders"][0]["kind"] == "历史首次触发"
+    assert store.list_events(other_uid, service.stream) == []
+    items = QueryService(service.settings).events(uid, service.stream, "机器人告警")["items"]
+    assert [EventResponse.model_validate(item).event_id for item in items] == [event.event_id]
+    assert service._run_window(uid, window(2)).created == []
+    assert store.list_events(uid, service.stream) == [event]
+    rows, _ = store._execute("SELECT COUNT(*) AS n FROM alert_preview_deliveries")
+    assert rows[0]["n"] == 2

@@ -1351,3 +1351,8 @@ select:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2p
   color: #71717a;
   font-size: 10px;
 }
+
+.handoff-age { border-radius: 999px; display: inline-flex; padding: 1px 6px; font-size: 11px; white-space: nowrap; }
+.handoff-age.yellow { background: #fef9c3; color: #713f12; }
+.handoff-age.orange { background: #ffedd5; color: #9a3412; }
+.handoff-age.red { background: #fee2e2; color: #991b1b; }

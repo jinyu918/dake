@@ -1,13 +1,16 @@
-"""合成告警入口及独立告警轮次规则。"""
+"""已确认机器人消息的告警证据及轮次规则。"""
 
 from copy import deepcopy
 from datetime import timedelta
+from hashlib import sha256
 import json
 import re
 
 from .models import parse_time
 from .priority_policy import customer_level_number
 
+ALERT_EVENT_TYPE = "机器人告警"
+ALERT_ID = re.compile(r"[A-Za-z0-9._-]{1,96}")
 ALERT_SCHEMA = "dake.synthetic-alert-v1"
 ROUTES = {"P1": "值班或 TAM", "P2": "客户负责人", "P3": "普通告警聚合", "待核实": "内部兜底"}
 
@@ -20,7 +23,7 @@ def parse_synthetic_alert(message, source):
     if not isinstance(value, dict) or value.get("schema") != ALERT_SCHEMA or value.get("source") != source:
         return None
     for key in ("alert_id", "round_id"):
-        if not isinstance(value.get(key), str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,96}", value[key]):
+        if not isinstance(value.get(key), str) or not ALERT_ID.fullmatch(value[key]):
             return None
     if value.get("kind") not in ("trigger", "recovery"):
         return None
@@ -30,6 +33,34 @@ def parse_synthetic_alert(message, source):
     return dict(source=source, alert_id=value["alert_id"], round_id=value["round_id"], kind=value["kind"],
                 original_severity=severity, occurred_at=message.sent_at.isoformat(), message_id=message.key,
                 uid=message.uid, confirmed=value.get("affected_uid") == message.uid)
+
+
+def parse_alert_evidence(message, synthetic_source=None):
+    if synthetic_source and (delivery := parse_synthetic_alert(message, synthetic_source)):
+        return delivery
+    lines = message.content.strip().splitlines()
+    if not lines:
+        return None
+    headline = re.fullmatch(r"(?:【(告警触发|告警恢复)】|(告警触发|告警恢复))", lines[0].strip())
+    if headline is None:
+        return None
+    fields = {}
+    for line in lines[1:]:
+        field = re.fullmatch(r"(告警ID|轮次ID|告警级别)\s*[:：]\s*(\S+)\s*", line.strip())
+        if field is None:
+            continue
+        key, value = field.groups()
+        if key in fields:
+            return None
+        fields[key] = value
+    alert_id, round_id = fields.get("告警ID", ""), fields.get("轮次ID", "")
+    severity = fields.get("告警级别", "")
+    if not ALERT_ID.fullmatch(alert_id) or not ALERT_ID.fullmatch(round_id) or len(severity) > 32:
+        return None
+    identity = sha256(json.dumps([message.source, message.sender_id]).encode()).hexdigest()
+    return dict(source=f"bot-{identity}", alert_id=alert_id, round_id=round_id,
+                kind="trigger" if "触发" in headline[0] else "recovery", original_severity=severity,
+                occurred_at=message.sent_at.isoformat(), message_id=message.key, uid=message.uid, confirmed=True)
 
 
 def append_alert_delivery(current, delivery, profile_reader, reminder_minutes=None):

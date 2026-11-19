@@ -301,5 +301,5 @@ def test_workbench_priority_order_uses_saved_level_response_and_absolute_deadlin
                 item("overdue", "L1", overdue=True), item("review-first", priority="待评估", review_required=True),
                 item("review-later", priority="待评估", due="2038-06-01T01:00:00Z")]
     assert [e["event_id"] for e in sorted(fixtures, key=event_priority_sort_key)] == [
-        "overdue", "higher-level", "emotion", "followup", "a-tie", "b-tie", "early-due", "late-due",
+        "higher-level", "emotion", "followup", "a-tie", "b-tie", "early-due", "late-due", "overdue",
         "review-first", "review-later"]

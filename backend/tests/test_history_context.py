@@ -457,8 +457,6 @@ def test_mixed_window_structured_alerts_stay_out_of_xhub(tmp_path, monkeypatch, 
     original = event(messages=[old, cited], stream=provider.name)
     proof = event(2, [neighbor], stream=provider.name, topic_key="独立事项", summary="另一件事项")
     store = MemoryStore()
-    delivered = []
-    monkeypatch.setattr(store, "save_alert_delivery", lambda delivery, _: delivered.append(delivery), raising=False)
     monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
         (UID, incoming.source, incoming.sender_id, incoming.conversation_id): "bot"})
     store.messages.update({m.key: m for m in (old, cited, neighbor, previous)})
@@ -470,11 +468,13 @@ def test_mixed_window_structured_alerts_stay_out_of_xhub(tmp_path, monkeypatch, 
         if cite_alert:
             with pytest.raises(XHubError, match="证据|引文|引用"):
                 service.run_window(UID, window(10))
-            assert not delivered
+            assert len(store.events) == 2
         else:
             result = service.run_window(UID, window(10))
             assert result.processed == 2 and result.updated == []
-            assert [d["message_id"] for d in delivered] == [incoming.key]
+            saved, = [store.events[eid] for eid in result.created]
+            assert saved.type == "机器人告警"
+            assert [d["message_id"] for d in saved.evidence] == [incoming.message_id]
         payload = calls[0]
         assert [m["id"] for m in payload["new_messages"]] == [new.key]
         assert payload["context_messages"] == []

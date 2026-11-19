@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 from ..analysis.matching import match, merge_batch
 from ..analysis.providers import Provider
-from ..domain.alert_policy import parse_synthetic_alert
+from ..domain.alert_policy import ALERT_EVENT_TYPE, parse_alert_evidence
 from ..analysis.updates import apply_candidate, snapshot_as_of
 from ..analysis.validation import validate_candidates, validate_priority_evidence
 from ..config import REVIEW, Settings
@@ -15,6 +15,7 @@ from ..repositories.mysql import StorageError
 from .ingestion import IngestionService, Source
 from .history_retrieval import HistoryRetriever
 from .history_context import HistoryContextService
+from .alert_events import append_alert_event, legacy_trigger_evidence
 from .attribution import apply_attributions, preflight_attributions
 from .sender_kinds import FILTER_VERSION, kinds_fingerprint, load_sender_kinds, sender_kind
 from .item_priority import refresh_item_priority, save_priority_refresh
@@ -98,17 +99,20 @@ class IncrementalService:
             recorder.record("ingestion", message_versions=[message_ref(m) for m in messages])
         pending, context, events, isolated = self._preview_window(uid, window, messages, result, kinds)
         # 模型调用放在业务事务之外；失败时尚未写入消息和事件。
-        bot_pending = [m for m in pending if sender_kind(m.to_dict(), kinds) == "bot"]
+        alert_owners = {f"{ref['source']}:{ref['message_id']}": event for event in events
+                        if event.type == ALERT_EVENT_TYPE for ref in event.evidence}
+        bot_pending = [m for m in pending if m.key in alert_owners or sender_kind(m.to_dict(), kinds) == "bot"]
         bot_keys = {m.key for m in bot_pending}
         eligible = [m for m in pending if m.key not in bot_keys]
-        alert_source = self.settings.synthetic_alert_source
         alert_deliveries = {m.key: delivery for m in bot_pending
-                            if alert_source and (delivery := parse_synthetic_alert(m, alert_source))}
+                            if (delivery := (alert_owners[m.key].extensions["robot_alert"] if m.key in alert_owners
+                                              else parse_alert_evidence(m, self.settings.synthetic_alert_source)))}
         evidence_pending = [m for m in pending if m.key not in alert_deliveries]
-        context = [m for m in context if not self._is_structured_alert(m, kinds)]
+        context = [m for m in context if m.key not in alert_owners and not self._is_structured_alert(m, kinds)]
         auxiliary = context + [m for m in bot_pending if m.key not in alert_deliveries]
         candidates, history, background = self._extract_outside(uid, window, result, recorder, observer, observe,
-            pending, eligible, auxiliary, events, kinds, roles, evidence_pending=evidence_pending)
+            pending, eligible, auxiliary, [e for e in events if e.type != ALERT_EVENT_TYPE],
+             kinds, roles, evidence_pending=evidence_pending, alert_keys=alert_owners)
         withheld = isolated
         with self.store.transaction(uid):
             writable = getattr(self.store, "store", self.store)
@@ -132,8 +136,8 @@ class IncrementalService:
                 candidates = accepted
                 pending_keys = eligible_keys
                 for message in bot_pending:
-                    if delivery := alert_deliveries.get(message.key):
-                        self.store.save_alert_delivery(delivery, self.settings.alert_reminder_minutes)
+                    if message.key in alert_deliveries:
+                        continue
                     result.filter_audit.append(dict(
                         reason="confirmed_bot_auxiliary_only" if eligible else "confirmed_bot_without_new_discussion",
                         message_keys=[message.key], policy_version=FILTER_VERSION, identity_config_hash=fingerprint))
@@ -158,7 +162,8 @@ class IncrementalService:
                 for candidate in merge_batch([] if explicit else candidates, available, self.settings.match_window, pending_keys,
                                              self.settings.closed_statuses,
                                              {(e.type, e.topic_key) for e in events if e.closed_at is not None}):
-                    old, possible_ids, uncertain = match(candidate, events, available, self.settings, pending_keys)
+                    old, possible_ids, uncertain = match(candidate, [e for e in events if e.type != ALERT_EVENT_TYPE],
+                                                          available, self.settings, pending_keys)
                     if uncertain:
                         blocked.update(available[key].key for key in candidate.evidence_ids)
                         result.review.append(dict(
@@ -207,6 +212,36 @@ class IncrementalService:
                             save_priority_refresh(self.store, event, window, updated, attempt_id=result.attempt_id)
                             if not updated:
                                 result.updated.append(event.event_id)
+                rounds = {(alert["source"], alert["alert_id"], alert["round_id"]): event for event in events
+                          if event.type == ALERT_EVENT_TYPE and (alert := event.extensions.get("robot_alert"))}
+                for message in bot_pending:
+                    delivery = alert_deliveries.get(message.key)
+                    if delivery is None:
+                        continue
+                    key = (delivery["source"], delivery["alert_id"], delivery["round_id"])
+                    previous = rounds.get(key)
+                    event = previous
+                    alert_inputs = [(message, delivery)]
+                    if delivery.get("kind") == "recovery" and not (previous and previous.extensions["robot_alert"].get("triggered_at")):
+                        alert_inputs.extend(legacy_trigger_evidence(self.store, message, delivery, kinds,
+                                                                   self.settings.synthetic_alert_source))
+                    for evidence_message, evidence_delivery in alert_inputs:
+                        updated = append_alert_event(event, evidence_message, evidence_delivery, self.stream, window,
+                                                     lambda _: customer_profile, self.settings.alert_reminder_minutes,
+                                                     result.attempt_id)
+                        if updated is not None:
+                            event = updated
+                    if event is previous:
+                        continue
+                    self.store.save_event(event)
+                    rounds[key] = event
+                    if previous is None:
+                        events.append(event)
+                        result.created.append(event.event_id)
+                    else:
+                        events = [event if item.event_id == event.event_id else item for item in events]
+                        if event.event_id not in result.created and event.event_id not in result.updated:
+                            result.updated.append(event.event_id)
                 completed = [message for message in pending if message.key not in blocked]
                 self.store.mark_processed(completed, self.stream)
                 result.processed = len(completed)
@@ -270,15 +305,16 @@ class IncrementalService:
             available = {message.key: message for message in pending_list}
             pending_list, backfill, isolated = classify_pending(
                 pending_list, window, events, self.settings.ingest_lookback, revised)
-            if self.settings.synthetic_alert_source:
-                late_alerts = set()
-                for item in isolated:
-                    key = f"{item['source']}:{item['message_id']}"
-                    if item["kind"] == "late_message" and self._is_structured_alert(available[key], kinds):
-                        late_alerts.add(key)
-                if late_alerts:
-                    pending_list = sorted([*pending_list, *(available[key] for key in late_alerts)], key=message_order)
-                    isolated = [item for item in isolated if f"{item['source']}:{item['message_id']}" not in late_alerts]
+            known_alert_keys = {f"{ref['source']}:{ref['message_id']}" for event in events
+                                if event.type == ALERT_EVENT_TYPE for ref in event.evidence}
+            late_alerts = set()
+            for item in isolated:
+                key = f"{item['source']}:{item['message_id']}"
+                if key in known_alert_keys or (item["kind"] == "late_message" and self._is_structured_alert(available[key], kinds)):
+                    late_alerts.add(key)
+            if late_alerts:
+                pending_list = sorted([*pending_list, *(available[key] for key in late_alerts)], key=message_order)
+                isolated = [item for item in isolated if f"{item['source']}:{item['message_id']}" not in late_alerts]
             if backfill:
                 result.filter_audit.append(dict(kind="controlled_backfill", count=len(backfill),
                     grace_seconds=int(self.settings.ingest_lookback.total_seconds())))
@@ -295,10 +331,10 @@ class IncrementalService:
         return pending_list, ordered, events, isolated
 
     def _is_structured_alert(self, message, kinds):
-        source = self.settings.synthetic_alert_source
-        return bool(source and sender_kind(message.to_dict(), kinds) == "bot" and parse_synthetic_alert(message, source))
+        return (sender_kind(message.to_dict(), kinds) == "bot"
+                and parse_alert_evidence(message, self.settings.synthetic_alert_source) is not None)
 
-    def _extract_outside(self, uid, window, result, recorder, observer, observe, pending, eligible, auxiliary, events, kinds, roles, *, evidence_pending):
+    def _extract_outside(self, uid, window, result, recorder, observer, observe, pending, eligible, auxiliary, events, kinds, roles, *, evidence_pending, alert_keys):
         """调用模型前不持有业务事务。"""
         context = [message for message in auxiliary if message not in pending]
         if recorder is not None:
@@ -324,11 +360,8 @@ class IncrementalService:
                 configure_history(history)
             configure_context = getattr(self.provider, "configure_history_context", None)
             if configure_context is not None:
-                if self.settings.synthetic_alert_source:
-                    background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds,
-                        exclude_message=lambda message: self._is_structured_alert(message, kinds))
-                else:
-                    background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds)
+                background = self.history_context.retrieve(history, eligible, auxiliary, events, kinds,
+                    exclude_message=lambda message: message.key in alert_keys or self._is_structured_alert(message, kinds))
                 configure_context(background)
             if recorder is not None:
                 recorder.record("history_context", "completed" if background is not None else "skipped",

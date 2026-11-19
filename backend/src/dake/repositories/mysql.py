@@ -503,33 +503,43 @@ class MySQLStore:
         )
         return [Event.from_dict(_decoded(row["snapshot"])) for row in rows if row["snapshot"]]
 
-    def save_alert_delivery(self, delivery, reminder_minutes=None):
-        from ..domain.alert_policy import append_alert_delivery
+    def legacy_alert_messages(self, message, delivery):
+        """旧表可选。只读取同客户、同机器人、已登记的轮次消息。"""
+        tables, _ = self._execute(
+            "SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_schema=DATABASE() "
+            "AND table_name IN ('alert_preview_rounds','alert_preview_deliveries')")
+        if tables[0]["n"] != 2:
+            return []
+        content = "JSON_UNQUOTE(JSON_EXTRACT(m.payload,'$.content'))"
+        body = f"IF(JSON_VALID({content}),{content},'{{}}')"
+        rows, _ = self._execute(f"""
+            SELECT m.payload AS message, r.source AS legacy_source
+            FROM alert_preview_rounds r JOIN alert_preview_deliveries d ON d.source=r.source
+            JOIN messages m ON d.message_id=CONCAT(m.source,':',m.message_id)
+            WHERE r.alert_id=%s AND r.round_id=%s AND m.uid=%s AND m.source=%s AND m.sent_at<=%s
+              AND JSON_CONTAINS(r.payload,CAST(%s AS JSON),'$.members')
+              AND JSON_UNQUOTE(JSON_EXTRACT(m.payload,'$.sender_id'))=%s
+              AND JSON_UNQUOTE(JSON_EXTRACT({body},'$.alert_id'))=r.alert_id
+              AND JSON_UNQUOTE(JSON_EXTRACT({body},'$.round_id'))=r.round_id
+              AND JSON_UNQUOTE(JSON_EXTRACT({body},'$.source'))=r.source
+            ORDER BY m.sent_at,m.message_id
+            """, (delivery["alert_id"], delivery["round_id"], message.uid, message.source,
+                  _sql_time(message.sent_at), _json(message.uid), message.sender_id))
+        return [(Message.from_dict(_decoded(row["message"])), row["legacy_source"]) for row in rows]
 
-        self._require_transaction(delivery["uid"])
-        _, inserted = self._execute("INSERT IGNORE INTO alert_preview_deliveries (source,message_id) VALUES (%s,%s)",
-                                    (delivery["source"], delivery["message_id"]))
-        if not inserted:
-            return
-        key = tuple(delivery[name] for name in ("source", "alert_id", "round_id"))
-        self._execute("INSERT IGNORE INTO alert_preview_rounds (source,alert_id,round_id,payload) VALUES (%s,%s,%s,%s)",
-                      (*key, "{}"))
-        rows, _ = self._execute("SELECT payload FROM alert_preview_rounds WHERE source=%s AND alert_id=%s AND round_id=%s FOR UPDATE", key)
-        current = _decoded(rows[0]["payload"])
-        updated = append_alert_delivery(current, delivery, self.customer_profile, reminder_minutes)
-        self._execute("UPDATE alert_preview_rounds SET payload=%s WHERE source=%s AND alert_id=%s AND round_id=%s",
-                      (_json(updated), *key))
+    def list_alert_previews(self, source, uid, stream, limit):
+        from ..domain.alert_policy import ALERT_EVENT_TYPE
 
-    def list_alert_previews(self, source, uid, limit):
-        statement = "SELECT payload FROM alert_preview_rounds WHERE source=%s"
-        values = (source,)
+        statement = """SELECT JSON_EXTRACT(payload, '$.extensions.robot_alert') AS alert FROM events
+                       WHERE type=%s AND stream=%s
+                       AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.extensions.robot_alert.source'))=%s"""
+        values = (ALERT_EVENT_TYPE, stream, source)
         if uid is not None:
-            statement += " AND JSON_CONTAINS(payload,CAST(%s AS JSON),'$.members')"
-            values += (json.dumps(uid),)
-        statement += " ORDER BY FIELD(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.state')),'告警中','待匹配恢复','已恢复'),"
-        statement += " FIELD(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.priority')),'P1','P2','P3','待核实'), alert_id,round_id LIMIT %s"
+            statement += " AND uid=%s"
+            values += (uid,)
+        statement += " ORDER BY end_time DESC, event_id LIMIT %s"
         rows, _ = self._execute(statement, (*values, limit))
-        return [_decoded(row["payload"]) for row in rows]
+        return [_decoded(row["alert"]) for row in rows]
 
     def due_priority_events(self, now, limit):
         rows, _ = self._execute(

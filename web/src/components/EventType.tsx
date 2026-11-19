@@ -17,6 +17,7 @@ const types = {
   功能需求: { icon: Lightbulb, className: 'feature' },
   商务需求: { icon: BriefcaseBusiness, className: 'business' },
   其他: { icon: Layers, className: 'other' },
+  机器人告警: { icon: CircleAlert, className: 'incident' },
   待分类: { icon: CircleHelp, className: 'pending' },
 };
 

@@ -300,6 +300,10 @@ Linux / WSL 可用用户服务保持本地后端运行：先执行 `.venv/bin/py
 
 计时预览前在本项目的隔离 MySQL 库执行 `backend/migrations/006_item_priority_deadline.sql` 一次。迁移给事件增加可空到期索引，存量事件保持空值。预览可加 `--calendar <本地日历文件>`。例如 `{"weekdays":[0,1,2,3,4],"opens":"09:00","closes":"17:00","holidays":[]}` 是合成日历，星期一为 0，时段使用上海时间。`python -m dake.cli check-priority-deadlines --calendar <本地日历文件>` 扫描一批到期事项。后台服务显式设置 `PRIORITY_SERVICE_CALENDAR` 后，协调线程也会扫描已投影的到期事项。
 
-合成告警验收先在隔离库执行 `backend/migrations/007_alert_preview.sql`。启动后端前在 `.env` 设置 `SYNTHETIC_ALERT_SOURCE=local-fixture`，并在机器人筛选中确认该测试客户和群的发送账号为机器人。常规任务的客户分析阶段读取已同步且群归属已确认的聊天，按本配置识别合成告警。任务中心界面会先调度来源同步。纯离线验收可运行 `python -m pytest backend/tests/test_runs.py -k regular_stored_task`，测试以隔离的已同步消息驱动常规分析入口。运行前完成配置，确保首次处理窗口使用该来源。未配置来源时，沿用常规机器人通知规则。
+常规任务在既有客户与群范围内识别已配置身份的机器人。告警报文首行为 `【告警触发】` 或 `【告警恢复】`，后接独立的 `告警ID` 和 `轮次ID` 字段，可附 `告警级别`。同一来源须在触发与恢复中保留相同 ID，复发使用新轮次。格式或身份无法核实时按现有通知处理。合成验收仍可显式设置 `SYNTHETIC_ALERT_SOURCE`，同样写入 `events`。离线验证入口为 `python -m pytest backend/tests/test_runs.py -k regular_stored_task`。
+
+新增告警不需要执行 `007_alert_preview.sql`。已有的 `alert_preview_rounds` 和 `alert_preview_deliveries` 原样保留。收到恢复但当前事件尚无触发证据时，使用旧轮次及投递记录查找同一客户、同一机器人、当前授权群内的原始触发消息。核对通过后与恢复一起写入当前事件，原消息缺失或来源有歧义则保留待匹配状态。共享轮次按客户独立计算恢复与优先级。旧 `/api/v1/alert-previews` 兼容接口读新存储中的合成告警，工作台使用 `/events`。
+
+工作台按自然时间计算未接手标签。严格超过 6、12、24 小时分别显示黄、橙、红。已验证接手或进入终态会清除标签。该标签不修改优先级；旧记录中的自动超时提档在读取时还原为原业务优先级，人工锁优先。
 
 消息正文为 JSON，必填 `schema`（`dake.synthetic-alert-v1`）、`source`（与配置相同）、`alert_id`、`round_id`、`kind`（`trigger` 或 `recovery`）和 `severity`。当确认受影响客户时，`affected_uid` 须与当前上报客户 UID 一致。同一 `source`、`alert_id`、`round_id` 汇总到一个告警轮次。独立告警使用不同的 `round_id`。已识别的告警与恢复从事项模型的当前输入及旧聊天背景中排除。`SYNTHETIC_ALERT_REMINDER_MINUTES` 可设置重复预览间隔。提醒预览与轮次同事务保存，先收到恢复时，补到更早的触发仅生成按事件时间记录的历史首次预览，轮次保持已恢复。工作台展开「机器人告警预览」查看轮次和历史首次预览，客户选择器同步限定预览范围。此入口只生成预览。

@@ -6,6 +6,7 @@ import {
   MessagesSquare,
   UserRound,
 } from 'lucide-react';
+import { HandoffAgeBadge } from '@/components/HandoffAgeBadge';
 import { formatTime } from '@/lib/utils';
 import { ClassificationDetails } from './ClassificationDetails';
 import { PriorityBadge, StatusBadge } from './EventBadges';
@@ -116,6 +117,7 @@ export function EventDetail({
                       basePriority={event.base_priority}
                       detail={event.priority_detail}
                     />
+                    <HandoffAgeBadge event={event} />
                   </dd>
                 </div>
                 <div>

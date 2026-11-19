@@ -23,6 +23,13 @@ class ScopedStore:
     def history_messages(self, *args):
         return self.keep(self.store.history_messages(*args))
 
+    def legacy_alert_messages(self, message, delivery):
+        reader = getattr(self.store, "legacy_alert_messages", None)
+        if reader is None:
+            return []
+        return [(item, source) for item, source in reader(message, delivery)
+                if item.conversation_id in self.allowed]
+
     def history_neighbor_heads(self, uid, anchor, before, **kwargs):
         if anchor.conversation_id not in self.allowed:
             return []

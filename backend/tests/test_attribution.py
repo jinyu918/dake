@@ -609,15 +609,38 @@ def test_alert_only_window_saves_before_processing_marker(tmp_path, monkeypatch)
     service, store, provider, source = build(tmp_path, [msg])
     service.settings = replace(service.settings, synthetic_alert_source="local-fixture")
     monkeypatch.setattr("dake.services.processing.sender_kind", lambda *_: "bot")
-    deliveries = []
+    saved = []
+    real_save = store.save_event
 
-    def save_alert(item, minutes):
+    def save_alert(item):
         assert (msg.key, service.stream) not in store.processed
-        deliveries.append(item)
+        saved.append(item)
+        real_save(item)
 
-    store.save_alert_delivery = save_alert
+    store.save_event = save_alert
     result = service.run_window(UID, window(1))
-    assert result.processed == 1 and not result.created
-    assert deliveries[0]["round_id"] == "a"
+    assert result.processed == 1 and result.created == [saved[0].event_id]
+    assert saved[0].extensions["robot_alert"]["round_id"] == "a"
     assert service.run_window(UID, window(1)).processed == 0
-    assert len(deliveries) == 1
+    assert len(saved) == 1
+
+
+def test_confirmed_internal_handoff_with_no_summary_change_stops_waiting(tmp_path, monkeypatch):
+    service, store, provider, source, original, event_id = opened(tmp_path)
+    notice = message("customer-claim", 2, "我来接手。虚构工单 CASE-SYN-42 报告上传失败。", sender_id="fixture-customer")
+    claim = message("internal-claim", 3, "我来接手，下一步检查虚构工单 CASE-SYN-42 报告上传失败的链路。", sender_id="fixture-engineer")
+    monkeypatch.setattr("dake.services.processing.load_sender_roles", lambda _: {
+        (UID, notice.source, notice.sender_id): "customer",
+        (UID, claim.source, claim.sender_id): "internal",
+    })
+    for day, item in [(2, notice), (3, claim)]:
+        source.messages.append(item)
+        provider.mapping[item.message_id] = candidate(item, "update", event_id, [original], changes=[])
+        result = service.run_window(UID, window(day))
+        if day == 2:
+            assert result.updated == []
+        else:
+            assert result.updated == [event_id]
+    saved = store.events[event_id]
+    assert saved.priority_detail["handoff_wait"]["accepted_at"] == claim.sent_at.isoformat()
+    assert saved.summary == original.content

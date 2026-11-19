@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import replace
 from datetime import datetime
+import re
 from uuid import uuid4
 
 from ..domain.manual_controls import (
@@ -14,7 +15,7 @@ from ..domain.manual_controls import (
 )
 from ..domain.models import Event, PENDING_TYPE, TZ, Window, parse_time
 from ..domain.item_clock import TERMINAL, advance_clock
-from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, evaluate_priority_proposal, merge_affected_customers
+from ..domain.priority_policy import PRIORITY_EVIDENCE_FIELDS, clear_legacy_timeout_upgrade, evaluate_priority_proposal, merge_affected_customers
 from ..domain.status_policy import evaluate_status_proposal, normalize_legacy_status
 from ..services.sender_identity import confirmed_sender_role
 from .summary_changes import explicitly_corrects_typed_attribute, prepare_summary, restrict_fields
@@ -126,6 +127,16 @@ def _merge_records(existing: list[dict], incoming: list[dict]) -> list[dict]:
 import json  # noqa: E402
 
 
+HANDOFF_TEXT = re.compile(r"(?:^|[。！!；;\n])\s*(?:我(?:来|已|正式)?接手|由我接手|我负责处理)(?=[，。！!；;：:\s]|$)")
+
+
+def explicit_handoff_times(candidate, available, new_keys, sender_roles):
+    return [message.sent_at for key in candidate.evidence_ids
+            if (new_keys is None or key in new_keys) and (message := available.get(key)) is not None
+            and confirmed_sender_role(message.to_dict(), sender_roles or {}) == "internal"
+            and HANDOFF_TEXT.search(message.content)]
+
+
 def has_structured_change(candidate, event, available=None, *, customer_profile=None) -> bool:
     """判断本轮分类、专属属性、状态提案或优先级信号是否足以单独构成有效修订。"""
     if event is None:
@@ -219,6 +230,7 @@ def apply_candidate(
     old_end_time = event.end_time if event is not None else None
     changes = None
     summary = candidate.summary
+    claimed_at = explicit_handoff_times(candidate, available, new_keys, sender_roles)
     structured_change = has_structured_change(candidate, event, customer_profile=customer_profile)
 
     if candidate.changes is not None:
@@ -236,7 +248,7 @@ def apply_candidate(
             ),
             field_corrections=field_corrections,
         )
-        if not changes and not created and not structured_change:
+        if not changes and not created and not (structured_change or claimed_at):
             return None
         if changes:
             candidate = restrict_fields(candidate, event, changes, available)
@@ -538,11 +550,26 @@ def apply_candidate(
         else:
             event.closed_at = None
 
+    reopened = previous is not None and previous.get("lifecycle_status") in TERMINAL and event.lifecycle_status not in TERMINAL
+    clock_facts = (candidate.priority_proposal or {}).get("clock_evidence", [])
+    wait = dict(old_detail.get("handoff_wait") or {})
+    if reopened:
+        wait = {"started_at": new_end.isoformat()}
+    wait_start = parse_time(wait["started_at"]) if wait.get("started_at") else event.start_time
+    claimed_at.extend(max(available[key].sent_at for key in fact["evidence_ids"])
+                      for fact in clock_facts if fact["kind"] == "handoff")
+    if "accepted_at" not in wait:
+        if old_clock and old_clock.get("phase") == "progress" and not reopened:
+            wait["accepted_at"] = old_clock["started_at"]
+        elif accepted := min((at for at in claimed_at if at >= wait_start), default=None):
+            wait["accepted_at"] = accepted.isoformat()
+    if wait:
+        event.priority_detail = dict(event.priority_detail or {}, handoff_wait=wait)
+    clear_legacy_timeout_upgrade(event)
+
     if (settings.priority_preview and settings.priority_calendar is not None) or old_clock:
-        clock_facts = (candidate.priority_proposal or {}).get("clock_evidence", [])
         timed_facts = sorted(((max(available[key].sent_at for key in fact["evidence_ids"]), fact)
                               for fact in clock_facts), key=lambda pair: pair[0])
-        reopened = previous is not None and previous.get("lifecycle_status") in TERMINAL and event.lifecycle_status not in TERMINAL
         if old_clock or created or reopened:
             clock = advance_clock(old_clock, start=new_end if reopened else start, reopened=reopened,
                                   terminal=event.lifecycle_status in TERMINAL, actions=timed_facts)

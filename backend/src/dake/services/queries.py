@@ -5,10 +5,11 @@ from datetime import timedelta
 import re
 
 from ..analysis.providers.xhub import configured_stream
+from ..domain.alert_policy import ALERT_EVENT_TYPE
 from ..domain.customer_policy import customer_segment, is_super_large
 from ..domain.manual_controls import is_locked
 from ..domain.models import EVENT_LABELS, EVENT_TYPES, PENDING_TYPE, message_order, parse_time
-from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION, PRIORITIES, apply_customer_tier, event_priority_sort_key
+from ..domain.priority_policy import ITEM_PRIORITY_RULE_VERSION, PRIORITIES, apply_customer_tier, clear_legacy_timeout_upgrade, event_priority_sort_key
 from ..domain.status_policy import LIFECYCLE_STATUSES, RESOLUTIONS, WAITING_REASONS
 from ..ingestion.client import validate_uid
 from ..repositories.mysql import MySQLStore, StorageError
@@ -152,7 +153,7 @@ class QueryService:
                     ingest_lookback=duration_label(self.settings.ingest_lookback),
                     closed_grace=duration_label(self.settings.closed_grace),
                     event_types=list(EVENT_TYPES),
-                    filter_event_types=[*EVENT_LABELS, PENDING_TYPE],
+                    filter_event_types=[*EVENT_LABELS, PENDING_TYPE, ALERT_EVENT_TYPE],
                     lifecycle_statuses=list(LIFECYCLE_STATUSES),
                     waiting_reasons=list(WAITING_REASONS),
                     resolutions=list(RESOLUTIONS),
@@ -165,12 +166,12 @@ class QueryService:
         if self.settings.synthetic_alert_source is None:
             return {"items": []}
         with self.connection() as store:
-            return {"items": store.list_alert_previews(self.settings.synthetic_alert_source, uid, limit)}
+            return {"items": store.list_alert_previews(self.settings.synthetic_alert_source, uid, configured_stream(self.settings), limit)}
 
     def events(self, uid=None, stream=None, event_type=None, status=None, priority=None):
         """返回当前事件版本，支持多标签、生命周期状态和业务优先级筛选与分层排序。"""
         uid, stream = self.scope(uid, stream)
-        if event_type is not None and event_type not in (*EVENT_LABELS, PENDING_TYPE):
+        if event_type is not None and event_type not in (*EVENT_LABELS, PENDING_TYPE, ALERT_EVENT_TYPE):
             raise ValueError("事件类型须为官方六类、其他或待分类之一")
         if status is not None and status not in LIFECYCLE_STATUSES:
             raise ValueError("事件状态不在允许的五类生命周期状态中")
@@ -187,8 +188,9 @@ class QueryService:
                     profile = None
             items = []
             for event in events:
+                clear_legacy_timeout_upgrade(event)
                 saved_policy = (event.priority_detail or {}).get("rule_version") == ITEM_PRIORITY_RULE_VERSION
-                if profile is not None and not saved_policy and event.base_priority != "待评估" and not is_locked(event, "priority"):
+                if event.type != ALERT_EVENT_TYPE and profile is not None and not saved_policy and event.base_priority != "待评估" and not is_locked(event, "priority"):
                     tiered = apply_customer_tier(
                         event.base_priority,
                         profile.get("level"),
@@ -226,6 +228,7 @@ class QueryService:
             event = next((e for e in store.list_events(uid, stream) if e.event_id == event_id), None)
             if event is None:
                 return None
+            clear_legacy_timeout_upgrade(event)
             ev_dict = event.to_dict()
             if hasattr(store, "_execute"):
                 enriched_ev = enrich_events(store, uid, [ev_dict], roles, kinds)[0]

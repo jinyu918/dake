@@ -8,6 +8,7 @@ import {
 } from '@/components/EventBadges';
 import { eventDisplayLabels } from '@/components/EventType';
 import { EmptyState, ErrorNotice, LoadingRows } from '@/components/Feedback';
+import { HandoffAgeBadge } from '@/components/HandoffAgeBadge';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/layouts/Workspace';
 import { savedEventScopes } from '@/lib/customerEvents';
@@ -382,6 +383,7 @@ export default function EventsPage() {
                           detail={event.priority_detail}
                           compact
                         />
+                        <HandoffAgeBadge event={event} />
                         <StatusBadge status={event.lifecycle_status} compact />
                         {isAllCustomers && (
                           <span className="event-row-types">

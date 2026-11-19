@@ -32,7 +32,7 @@ def test_all_deadlines_before_and_exactly_due(priority, level, band, phase):
     at_deadline = evaluate_clock(before, detail(priority, level), CALENDAR, due)
     assert at_deadline["overdue"]
     assert at_deadline["next_check"] is None
-    assert at_deadline["timeout_priority"] == {"P2": "P1", "P3": "P2"}.get(priority, priority)
+    assert "timeout_priority" not in at_deadline
     assert evaluate_clock(at_deadline, detail(priority, level), CALENDAR, due + timedelta(hours=1)) == at_deadline
 
 
@@ -86,5 +86,20 @@ def test_due_scanner_rechecks_version_and_preserves_lock():
     store.due_priority_events = lambda *_: [(event.uid, event.stream, event.event_id, store.events[event.event_id].version)]
     assert check_due_item_priorities(store, CALENDAR, now=due) == 1
     updated = store.events[event.event_id]
-    assert updated.priority == "P2" and updated.priority_detail["clock"]["timeout_priority"] == "P1"
+    assert updated.priority == "P2" and updated.priority_detail["clock"]["overdue"]
     assert check_due_item_priorities(store, CALENDAR, now=due) == 0
+
+
+def test_restore_legacy_timeout_rank_without_overriding_a_manual_lock():
+    from types import SimpleNamespace
+    from dake.domain.priority_policy import clear_legacy_timeout_upgrade
+
+    def legacy(locked):
+        return SimpleNamespace(priority="P1", severity="P1", manual_controls={"priority": {"locked": locked}},
+                               priority_detail={"pre_timer_priority": "P2", "clock": {"timeout_priority": "P1"}})
+
+    for locked, expected in [(False, "P2"), (True, "P1")]:
+        row = legacy(locked)
+        clear_legacy_timeout_upgrade(row)
+        assert row.priority == row.severity == row.priority_detail["priority"] == expected
+        assert "timeout_priority" not in row.priority_detail["clock"]

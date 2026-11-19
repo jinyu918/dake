@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from dake.config import Settings, bound
-from dake.domain.alert_policy import ALERT_SCHEMA, append_alert_delivery
+from dake.domain.alert_policy import ALERT_SCHEMA
 from dake.domain.models import Candidate, Message
 from dake.jobs.runner import RunRunner, prepare_request
 from dake.repositories.runs import RunConflict, RunRepository
@@ -101,50 +101,86 @@ def execute_next(repository, runner, request, total):
     return repository.items[submitted["run_id"]]
 
 
-@pytest.mark.parametrize("enabled", [False, True])
-def test_regular_stored_task_respects_alert_opt_in_and_group_scope(tmp_path, monkeypatch, enabled):
+@pytest.mark.parametrize("mode", ["disabled", "synthetic", "regular"])
+def test_regular_stored_task_persists_only_confirmed_alert_rounds(tmp_path, monkeypatch, mode):
     _, repository, runner, store, _, provider, request, total, seen = run_fixture(tmp_path, days=1)
-    env = tmp_path / "isolated.env"
-    env.write_text("SYNTHETIC_ALERT_SOURCE=local-fixture\nSYNTHETIC_ALERT_REMINDER_MINUTES=5\n" if enabled else "",
-                   encoding="utf-8")
-    monkeypatch.setattr("dake.config.os.environ", {})
     monkeypatch.setattr(repository, "has_interrupted_range", lambda *_: False, raising=False)
-    loaded = Settings.load(env)
-    runner.settings = replace(runner.settings, synthetic_alert_source=loaded.synthetic_alert_source,
-                              alert_reminder_minutes=loaded.alert_reminder_minutes)
+    runner.settings = replace(runner.settings, synthetic_alert_source="local-fixture" if mode == "synthetic" else None,
+                              alert_reminder_minutes=5)
     request.update(message_source="stored", allowed_groups=["allowed"], strict_window=True)
     body = json.dumps(dict(schema=ALERT_SCHEMA, source="local-fixture", alert_id="fixture", round_id="one",
                            kind="recovery", severity="warning", affected_uid=request["uid"]))
+    if mode == "regular":
+        body = "【告警恢复】\n告警ID：fixture\n轮次ID：one\n告警级别：warning"
     allowed = Message(request["uid"], "alert-in", bound("2026-11-08T09:00:00"), body,
                       source="official_chat", conversation_id="allowed", sender_id="fixture-bot")
     outside = replace(allowed, message_id="alert-out", conversation_id="outside")
-    store.messages.update({m.key: m for m in (allowed, outside)})
+    routine = replace(allowed, message_id="routine-bot", content="今日有告警，请关注看板")
+    store.messages.update({m.key: m for m in (allowed, outside, routine)})
     monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
         (allowed.uid, allowed.source, allowed.sender_id, m.conversation_id): "bot" for m in (allowed, outside)})
-    saved = []
-    preview = None
-
-    def save_alert(delivery, minutes):
-        nonlocal preview
-        saved.append((delivery["message_id"], minutes))
-        preview = append_alert_delivery(preview, delivery, lambda _: None, minutes)
-
-    monkeypatch.setattr(store, "save_alert_delivery", save_alert, raising=False)
     result = execute_next(repository, runner, request, total)
-    assert result["status"] == "succeeded" and seen[-1].synthetic_alert_source == loaded.synthetic_alert_source
-    assert saved == ([(allowed.key, 5)] if enabled else [])
+    assert result["status"] == "succeeded" and seen[-1].synthetic_alert_source == runner.settings.synthetic_alert_source
     assert (allowed.key, provider.name) in store.processed and (outside.key, provider.name) not in store.processed
-    if enabled:
-        assert preview["state"] == "待匹配恢复"
+    events = store.list_events(allowed.uid, provider.name)
+    assert len(events) == (0 if mode == "disabled" else 1)
+    if events:
+        event, = events
+        assert event.type == "机器人告警" and event.extensions["robot_alert"]["state"] == "待匹配恢复"
         trigger = replace(allowed, message_id="late-trigger", sent_at=allowed.sent_at - timedelta(hours=1),
-                          content=body.replace('"recovery"', '"trigger"'))
+                          content=body.replace('"recovery"', '"trigger"').replace("告警恢复", "告警触发"))
         store.messages[trigger.key] = trigger
         later = dict(request, data_start=request["start"], start=bound("2026-11-12").isoformat(),
                      end=bound("2026-11-13").isoformat())
         result = execute_next(repository, runner, later, total)
         assert result["status"] == "succeeded"
+        recovered, = store.list_events(allowed.uid, provider.name)
+        assert recovered.event_id == event.event_id and recovered.lifecycle_status == "已解决"
+        assert {item["message_id"] for item in recovered.evidence} == {allowed.message_id, trigger.message_id}
+        preview = recovered.extensions["robot_alert"]
         assert preview["state"] == "已恢复" and preview["recovered_at"] == allowed.sent_at.isoformat()
         assert [(r["kind"], r["at"]) for r in preview["reminders"]] == [("历史首次触发", trigger.sent_at.isoformat())]
+    assert not provider.calls
+
+
+def test_regular_alert_upgrade_and_source_correction_without_cross_customer_merge(tmp_path, monkeypatch):
+    _, repository, runner, store, _, provider, request, total, _ = run_fixture(tmp_path, days=1)
+    monkeypatch.setattr(repository, "has_interrupted_range", lambda *_: False, raising=False)
+    uid = request["uid"]
+    request.update(message_source="stored", allowed_groups=["allowed"], strict_window=True)
+    at = bound("2026-11-08T09:00:00")
+    recovery = Message(uid, "recovery", at, "【告警恢复】\n告警ID：rule\n轮次ID：one",
+                       conversation_id="allowed", sender_id="fixture-bot")
+    def old(mid, *, owner=uid, group="allowed", source="old-fixture"):
+        body = json.dumps(dict(schema=ALERT_SCHEMA, source=source, alert_id="rule", round_id="one",
+                               kind="trigger", severity="warning", affected_uid=owner))
+        return replace(recovery, uid=owner, message_id=mid, sent_at=at - timedelta(hours=1),
+                       content=body, conversation_id=group), source
+    trigger, source = old("trigger")
+    foreign = old("foreign", owner="100000002", source="foreign-fixture")
+    outside = old("outside", group="outside", source="out-of-scope-fixture")
+    store.messages[recovery.key] = recovery
+    monkeypatch.setattr(store, "legacy_alert_messages", lambda *_: [foreign, outside, (trigger, source)], raising=False)
+    monkeypatch.setattr("dake.services.processing.load_sender_kinds", lambda _: {
+        (m.uid, m.source, m.sender_id, m.conversation_id): "bot" for m in (recovery, foreign[0], outside[0])})
+    assert execute_next(repository, runner, request, total)["status"] == "succeeded"
+    saved, = store.list_events(uid, provider.name)
+    assert saved.lifecycle_status == "已解决" and saved.closed_at == recovery.sent_at
+    assert [ref["message_id"] for ref in saved.evidence] == [recovery.message_id, trigger.message_id]
+    assert saved.extensions["robot_alert"]["reminders"][0]["kind"] == "历史首次触发"
+
+    corrected = replace(recovery, content="通知更正，原消息需要人工核对")
+    store.messages[recovery.key] = corrected
+    later = dict(request, data_start=request["start"], start=bound("2026-11-12").isoformat(),
+                 end=bound("2026-11-13").isoformat())
+    assert execute_next(repository, runner, later, total)["status"] == "succeeded"
+    revised, = store.list_events(uid, provider.name)
+    assert revised.event_id == saved.event_id and revised.lifecycle_status == saved.lifecycle_status
+    assert revised.review_items[-1]["kind"] == "alert_source_revision"
+    assert revised.evidence[-1]["digest"] == corrected.digest
+    retry = dict(later, start=bound("2026-11-13").isoformat(), end=bound("2026-11-14").isoformat())
+    assert execute_next(repository, runner, retry, total)["status"] == "succeeded"
+    assert store.list_events(uid, provider.name) == [revised]
     assert not provider.calls
 
 
