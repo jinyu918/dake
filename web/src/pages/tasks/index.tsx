@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { STRATEGIC_CUSTOMER } from '@/lib/customerTier';
 import { useResource } from '@/lib/useResource';
 import {
   durationLabel,
@@ -45,7 +46,7 @@ const scopeLabel = (c: API.TaskConfig) =>
     : c.levels?.join(',') === 'L6,L7,L8,L9,L10'
       ? '大客户 · L6–L10'
       : c.levels?.join(',') === 'L9,L10'
-        ? '超大客 · L9–L10'
+        ? `超大客（L9）及${STRATEGIC_CUSTOMER}（L10）`
         : `自选等级 · ${c.levels?.join('、')}`;
 function Status({ status }: { status: string }) {
   return (
@@ -573,7 +574,9 @@ function ExecutionProgress({
                       {(c.level === 'L9' || c.level === 'L10') && (
                         <Crown size={12} className="task-crown" />
                       )}
-                      {c.level || '等级待确认'}
+                      {c.level === 'L10'
+                        ? `L10 · ${STRATEGIC_CUSTOMER}`
+                        : c.level || '等级待确认'}
                     </small>
                   </td>
                   <td>

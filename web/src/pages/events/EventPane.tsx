@@ -5,6 +5,7 @@ import { PriorityBadge, StatusBadge } from '@/components/EventBadges';
 import { EventType, eventDisplayLabels } from '@/components/EventType';
 import { HandoffAgeBadge } from '@/components/HandoffAgeBadge';
 import { ManualDecisionDialog } from '@/components/ManualDecisionDialog';
+import { customerLevelNote } from '@/lib/customerTier';
 import { formatTime } from '@/lib/utils';
 import { api } from '@/services/api';
 import { ChatMessage } from './ChatMessage';
@@ -253,7 +254,7 @@ export function EventPane({
   const controls = event.manual_controls || {};
   const priorityNote =
     typeof event.priority_detail?.level_note === 'string'
-      ? event.priority_detail.level_note
+      ? customerLevelNote(event.priority_detail.level_note)
       : typeof event.priority_detail?.reason === 'string'
         ? event.priority_detail.reason
         : '';

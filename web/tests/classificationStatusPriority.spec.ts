@@ -125,7 +125,8 @@ test('详情面板完整展示多标签、专属属性、结构化状态、提�
   expect(markup).toContain('等待内部支撑');
   expect(markup).toContain('P1');
   expect(markup).toContain('基 P2');
-  expect(markup).toContain('因 L10 超级大客由基础 P2 提升一档至 P1');
+  expect(markup).toContain('因 L10 战略级客户由基础 P2 提升一档至 P1');
+  expect(markup).not.toContain('L10 超级大客');
   expect(markup).toContain('处理锁定冲突');
 });
 

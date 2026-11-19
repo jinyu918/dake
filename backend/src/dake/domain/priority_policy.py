@@ -84,14 +84,15 @@ def apply_customer_tier(objective_priority: str, level: str | None = None, level
     base_priority = "P2" if super_large and objective_priority == "P3" else objective_priority
     priority = SUPER_LARGE_BOOST_MAP[base_priority] if super_large else base_priority
     vip_boosted = priority != base_priority
+    tier_label = "战略级客户" if level == "L10" else "超级大客"
     level_note = None
     if base_priority != "待评估":
         if base_priority != objective_priority:
-            level_note = f"{level} 超级大客基础档从 P2 起，处理档提至 {priority}"
+            level_note = f"{level} {tier_label}基础档从 P2 起，处理档提至 {priority}"
         elif vip_boosted:
-            level_note = f"因 {level} 超级大客由基础 {base_priority} 提升一档至 {priority}"
+            level_note = f"因 {level} {tier_label}由基础 {base_priority} 提升一档至 {priority}"
         elif super_large and base_priority in {"P0", "P1"}:
-            level_note = f"{level} 超级大客基础已为 {base_priority}，同档优先排序"
+            level_note = f"{level} {tier_label}基础已为 {base_priority}，同档优先排序"
         elif segment == "pending":
             level_note = "客户等级待确认，暂按基础优先级展示"
     return dict(

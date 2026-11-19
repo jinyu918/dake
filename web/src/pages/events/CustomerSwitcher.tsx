@@ -2,6 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown, Crown, Search, UsersRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { savedEventCount } from '@/lib/customerEvents';
+import { STRATEGIC_CUSTOMER } from '@/lib/customerTier';
 
 export type CustomerTierFilter = 'all' | 'super_large' | 'large' | 'active';
 
@@ -25,8 +26,8 @@ export function customerTierBadge(customer?: Partial<API.CustomerResponse>) {
     const level = customer.level || 'L9+';
     return {
       level,
-      text: `${level} · 超级大客`,
-      short: `${level} 超大客`,
+      text: `${level} · ${level === 'L10' ? STRATEGIC_CUSTOMER : '超级大客'}`,
+      short: `${level} ${level === 'L10' ? STRATEGIC_CUSTOMER : '超大客'}`,
       kind: 'super' as const,
     };
   }

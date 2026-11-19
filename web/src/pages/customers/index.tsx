@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { useWorkspace } from '@/layouts/Workspace';
 import { savedEventCount } from '@/lib/customerEvents';
+import { STRATEGIC_CUSTOMER } from '@/lib/customerTier';
 import { useResource } from '@/lib/useResource';
 import { errorMessage, formatTime } from '@/lib/utils';
 import { api } from '@/services/api';
@@ -40,7 +41,10 @@ const freshness: Record<string, string> = {
 type CustomerFilter = NonNullable<API.listCustomerProfilesParams['segment']>;
 const customerFilters: { value: CustomerFilter; label: string }[] = [
   { value: 'large', label: '大客户（L6～L10）' },
-  { value: 'super_large', label: '超级大客户（L9～L10）' },
+  {
+    value: 'super_large',
+    label: `超级大客户（L9）及${STRATEGIC_CUSTOMER}（L10）`,
+  },
   { value: 'non_large', label: '非大客户（L0～L5）' },
   { value: 'pending', label: '等级待确认' },
   { value: 'all', label: '全部客户' },
@@ -400,7 +404,9 @@ export default function CustomersPage() {
                             {item.is_super_large ? (
                               <span className="customer-tier-pill super">
                                 <Crown size={11} />
-                                超级大客
+                                {item.level === 'L10'
+                                  ? STRATEGIC_CUSTOMER
+                                  : '超级大客'}
                               </span>
                             ) : null}
                           </div>
@@ -506,7 +512,9 @@ export default function CustomersPage() {
                     {selected.is_super_large && <Crown size={12} />}
                     {selected.level || '未知'} ·{' '}
                     {selected.is_super_large
-                      ? '超大客'
+                      ? selected.level === 'L10'
+                        ? STRATEGIC_CUSTOMER
+                        : '超大客'
                       : segmentLabels[selected.segment]}
                   </span>
                 </div>

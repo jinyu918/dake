@@ -165,10 +165,12 @@ def test_priority_matrix_and_super_large_customer_cap():
     boosted_p3 = apply_customer_tier("P3", "L10", "fresh")
     assert (boosted_p3["objective_priority"], boosted_p3["base_priority"], boosted_p3["priority"]) == ("P3", "P2", "P1")
     assert boosted_p3["vip_boosted"] is True
+    assert "L10 战略级客户" in boosted_p3["level_note"]
 
     # L9 中等影响 P2 -> 提升一档至 P1。
     boosted_p2 = apply_customer_tier("P2", "L9", "fresh")
     assert boosted_p2["priority"] == "P1" and boosted_p2["vip_boosted"] is True
+    assert "L9 超级大客" in boosted_p2["level_note"]
 
     # L10 的 P1 封顶保持 P1，禁止单凭客户身份冲入 P0。
     capped_p1 = apply_customer_tier("P1", "L10", "fresh")

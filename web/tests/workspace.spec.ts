@@ -99,10 +99,10 @@ async function fixture(page: Page, initiallyEmpty = false, historical = false) {
               stream: 'stream-555002',
               message_count: 5,
               event_count: hasEvents ? 1 : 0,
-              level: 'L7',
+              level: 'L10',
               level_state: 'fresh',
               segment: 'large',
-              is_super_large: false,
+              is_super_large: true,
               tam: '合成负责人B',
               group_count: 1,
               group_names: ['合成协作群B'],
@@ -249,6 +249,63 @@ test('事件筛选保留在链接中；清除四项筛选时保留客户搜索',
   await expect(page.getByLabel('搜索事件')).toHaveValue('测试客户555002');
   await expect(page.locator('.event-chat-title')).toHaveText('测试事项C');
   expect(state.writes).toHaveLength(0);
+});
+
+test('L10 战略级客户标识贯穿客户筛选、列表及事项切换', async ({ page }) => {
+  const state = await fixture(page);
+  let segment: string | null = null;
+  await page.route('**/api/v1/customers**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/customers')) {
+      segment = url.searchParams.get('segment');
+      return route.fulfill({
+        json: {
+          items: [
+            ['555002', 'L10'],
+            ['1383603926', 'L9'],
+          ].map(([uid, level]) => ({
+            uid,
+            level,
+            level_state: 'fresh',
+            tam_state: 'fresh',
+            segment: 'large',
+            is_super_large: true,
+            group_count: 0,
+          })),
+          total: 2,
+        },
+      });
+    }
+    return route.fulfill({ json: { items: [], total: 0 } });
+  });
+  await page.goto('/customers');
+  const scope = page.getByLabel('客户范围');
+  await expect(scope.locator('option[value="super_large"]')).toHaveText(
+    '超级大客户（L9）及战略级客户（L10）',
+  );
+  await scope.selectOption('super_large');
+  const rows = page.getByRole('region', { name: '客户列表' }).getByRole('row');
+  await expect(rows.filter({ hasText: '555002' })).toContainText('战略级客户');
+  await expect(rows.filter({ hasText: '1383603926' })).toContainText(
+    '超级大客',
+  );
+  await expect(
+    page.getByRole('complementary', { name: '客户资料' }),
+  ).toContainText('L10 · 战略级客户');
+  expect(segment).toBe('super_large');
+
+  await page.goto('/events?uid=all');
+  await expect(page.locator('.event-rows')).toContainText('L10 战略级客户');
+  const switcher = page.getByRole('button', { name: '切换客户' });
+  await switcher.click();
+  const choices = page.getByRole('group', { name: '可选客户列表' });
+  await expect(
+    choices.getByRole('button', { name: /1383603926/ }),
+  ).toContainText('L9 超大客');
+  await choices.getByRole('button', { name: /555002.*战略级客户/ }).click();
+  await expect(switcher).toContainText('L10 战略级客户');
+  await expect(page.getByLabel('客户范围')).toHaveValue('555002');
+  expect(state.writes).toEqual([]);
 });
 
 test('客户同步起止时间和提交入口在视口内，取消后可继续浏览客户', async ({

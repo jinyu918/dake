@@ -3,6 +3,7 @@ import { ErrorNotice } from '@/components/Feedback';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeading } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { STRATEGIC_CUSTOMER } from '@/lib/customerTier';
 import { durationLabel, errorMessage } from '@/lib/utils';
 import { api } from '@/services/api';
 
@@ -219,7 +220,9 @@ export function TaskForm({
                   }}
                 >
                   <option value="large">大客户 · L6–L10</option>
-                  <option value="super">超大客 · L9–L10</option>
+                  <option value="super">
+                    超大客（L9）及{STRATEGIC_CUSTOMER}（L10）
+                  </option>
                   <option value="custom">自选等级</option>
                 </select>
               </label>
@@ -239,7 +242,7 @@ export function TaskForm({
                         })
                       }
                     />
-                    {level}
+                    {level === 'L10' ? `L10 · ${STRATEGIC_CUSTOMER}` : level}
                   </label>
                 ))}
               </div>
@@ -497,7 +500,11 @@ export function TaskForm({
                   <ul>
                     {preview.items.map((p) => (
                       <li key={p.uid}>
-                        客户 {p.uid} · {p.level} · {p.tam || '负责人未知'}
+                        客户 {p.uid} ·{' '}
+                        {p.level === 'L10'
+                          ? `L10 · ${STRATEGIC_CUSTOMER}`
+                          : p.level}{' '}
+                        · {p.tam || '负责人未知'}
                       </li>
                     ))}
                   </ul>

@@ -1,4 +1,5 @@
 import { Crown, Lock } from 'lucide-react';
+import { customerLevelNote } from '@/lib/customerTier';
 
 const PRIORITY_RANKS: Record<string, number> = {
   P0: 0,
@@ -100,8 +101,7 @@ export function PriorityBadge({
   const tone = PRIORITY_CLASSES[value] || 'pending';
   const clock = priorityClock(detail);
   const vipBoosted = Boolean(detail?.vip_boosted);
-  const levelNote =
-    typeof detail?.level_note === 'string' ? detail.level_note : '';
+  const levelNote = customerLevelNote(detail?.level_note);
   return (
     <span
       className={`priority-pill ${tone} ${compact ? 'compact' : ''}`}
