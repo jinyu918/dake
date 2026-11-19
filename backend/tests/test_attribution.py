@@ -657,3 +657,15 @@ def test_confirmed_internal_handoff_with_no_summary_change_stops_waiting(tmp_pat
     saved = store.events[event_id]
     assert saved.priority_detail["handoff_wait"]["accepted_at"] == claim.sent_at.isoformat()
     assert saved.summary == original.content
+
+
+def test_unknown_preview_event_does_not_start_handoff_clock(tmp_path):
+    from dake.analysis.updates import apply_candidate
+    from test_item_clock import CALENDAR
+
+    msg = message("unknown-clock", 1)
+    settings = Settings(data_dir=tmp_path, priority_preview=True, priority_calendar=CALENDAR)
+    event = apply_candidate(candidate(msg), None, {msg.key: msg}, UID, "stub-v1", window(1), settings)
+    assert event.lifecycle_status == "状态未明"
+    assert not (event.priority_detail or {}).get("clock")
+    assert not (event.priority_detail or {}).get("handoff_wait")

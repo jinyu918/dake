@@ -191,6 +191,72 @@ async function mockProgress(page: Page) {
   return state;
 }
 
+test('任务周期和事项弹窗显示已接手事项的等待时长', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2038-06-02T20:00:00+08:00'));
+  const state = await mockProgress(page);
+  const waiting = savedEvent('synthetic-waiting');
+  const window = {
+    start: '2038-06-02T11:55:00+08:00',
+    end: '2038-06-02T12:00:00+08:00',
+  };
+  waiting.status = waiting.lifecycle_status = '等待中';
+  waiting.priority_detail = {
+    handoff_wait: { started_at: moment, accepted_at: moment },
+  };
+  waiting.updated_by = [
+    {
+      action: 'updated',
+      source: 'automatic',
+      window_start: window.start,
+      window_end: window.end,
+      message_ids: [],
+      snapshot: null,
+      revision_no: 2,
+      recorded_at: null,
+      change_kind: 'progress',
+      change_summary: null,
+      summary_changed: null,
+      changed_fields: ['lifecycle_status'],
+      changes: [],
+      manual_operation: null,
+      policy_version: null,
+    },
+  ];
+  state.tasks[0].cycles = [
+    {
+      uid,
+      stream,
+      window,
+      ingested: 1,
+      processed: 1,
+      created: [],
+      updated: [waiting.event_id],
+      review: [],
+      events: [waiting],
+      watermark: {
+        next_start: null,
+        last_send_time: null,
+        last_message_id: null,
+      },
+      filter_audit: [],
+      recovered_from_history: false,
+      counts_complete: true,
+      skipped_empty: false,
+    },
+  ];
+  await page.goto('/tasks/run-detail');
+  await page.getByText('展开已完成时段与事件变化（1 轮）').click();
+  const row = page.getByRole('button', { name: /虚构报告 synthetic-waiting/ });
+  await expect(row.locator('.handoff-age.yellow')).toHaveText(
+    '超 6 小时未处理',
+  );
+  await row.click();
+  await expect(
+    page.getByRole('dialog').locator('.handoff-age.yellow'),
+  ).toHaveText('超 6 小时未处理');
+  expect(state.writes).toEqual([]);
+});
+
 test('默认选择进行中任务，自动显示停止原因并保留真实窗口进度', async ({
   page,
 }) => {

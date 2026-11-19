@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { compareEventsByPriority } from '../src/components/EventBadges';
+import { HandoffAgeBadge } from '../src/components/HandoffAgeBadge';
 import { EventPane } from '../src/pages/events/EventPane';
 import { SavedChanges } from '../src/pages/events/SavedChanges';
 
@@ -388,22 +389,147 @@ test('工作台混排机器人告警，筛选客户并按保存的轮次打开�
   expect(previewRequests).toBe(0);
 });
 
-test('工作台无需新消息即可越过 6、12、24 小时，接手或终态后清除标签', async ({
+test('待处理与状态未明沿用接手计时，跟进与终态隐藏标签', () => {
+  const start = '2000-06-01T00:00:00Z';
+  const badge = (overrides: Partial<API.EventResponse>) =>
+    renderToStaticMarkup(
+      createElement(HandoffAgeBadge, {
+        event: makeEvent({
+          start_time: start,
+          status: '未知',
+          lifecycle_status: '状态未明',
+          priority_detail: null,
+          ...overrides,
+        }),
+      }),
+    );
+  const wait = { handoff_wait: { started_at: start } };
+  const clock = { clock: { phase: 'handoff', started_at: start } };
+  for (const lifecycle_status of ['跟进中', '已解决', '已取消'] as const) {
+    expect(
+      badge({
+        lifecycle_status,
+        status: '待处理',
+        priority_detail: { ...wait, ...clock },
+      }),
+    ).toBe('');
+  }
+  expect(badge({})).toBe('');
+  expect(
+    badge({
+      priority_detail: { clock: { phase: 'progress', started_at: start } },
+    }),
+  ).toBe('');
+  expect(
+    badge({
+      priority_detail: {
+        handoff_wait: { started_at: start, accepted_at: start },
+      },
+    }),
+  ).toBe('');
+  expect(badge({ priority_detail: wait })).toContain('超 24 小时未处理');
+  expect(badge({ priority_detail: clock })).toContain('超 24 小时未处理');
+  expect(badge({ status: '待处理' })).toContain('超 24 小时未处理');
+});
+
+test('等待标签取本轮进入等待的证据，支持旧修订和旧事项', () => {
+  const now = Date.now();
+  const ago = (hours: number) =>
+    new Date(now - hours * 3_600_000).toISOString();
+  const detail = (hours: number) => ({
+    status: '等待中',
+    source: 'automatic',
+    evidence_refs: [{ send_time: ago(hours) }],
+  });
+  const waiting = makeEvent({
+    status: '等待中',
+    lifecycle_status: '等待中',
+    start_time: ago(50),
+    end_time: ago(1),
+    status_detail: detail(1),
+    priority_detail: {
+      handoff_wait: { started_at: ago(50), accepted_at: ago(49) },
+      clock: { phase: 'progress', started_at: ago(49) },
+    },
+  });
+  const revision = (
+    windowAge: number,
+    snapshot: API.EventSnapshot | null,
+    changed_fields: string[] = ['lifecycle_status'],
+  ): API.EventRevision => ({
+    action: 'updated',
+    source: 'automatic',
+    window_start: ago(windowAge + 1),
+    window_end: ago(windowAge),
+    message_ids: [],
+    snapshot,
+    revision_no: null,
+    recorded_at: ago(1),
+    change_kind: null,
+    change_summary: null,
+    summary_changed: null,
+    changed_fields,
+    changes: [],
+    manual_operation: null,
+    policy_version: null,
+  });
+  const badge = (overrides: Partial<API.EventResponse>) =>
+    renderToStaticMarkup(
+      createElement(HandoffAgeBadge, { event: { ...waiting, ...overrides } }),
+    );
+  expect(
+    badge({
+      updated_by: [
+        revision(31, { ...waiting, status_detail: detail(32) }),
+        revision(22, {
+          ...waiting,
+          lifecycle_status: '跟进中',
+          status_detail: null,
+        }),
+        revision(11, { ...waiting, status_detail: detail(13) }),
+        revision(1, waiting, []),
+      ],
+    }),
+  ).toContain('超 12 小时未处理');
+  expect(
+    badge({ updated_by: [revision(11, null), revision(1, null, [])] }),
+  ).toContain('超 6 小时未处理');
+  expect(
+    badge({
+      updated_by: [
+        { ...revision(26, null), source: 'manual', recorded_at: ago(8) },
+      ],
+    }),
+  ).toContain('超 6 小时未处理');
+  expect(badge({ status_detail: detail(8) })).toContain('超 6 小时未处理');
+  expect(badge({ status_detail: null })).toContain('超 24 小时未处理');
+});
+
+test('工作台等待中已接手仍无需新消息即可越过 6、12、24 小时', async ({
   page,
 }) => {
   const start = Date.parse('2038-06-01T00:00:00Z');
   const hour = 3_600_000;
   await page.clock.install({ time: start + 6 * hour - 20_000 });
   const event = makeEvent({
-    start_time: new Date(start).toISOString(),
-    lifecycle_status: '跟进中',
+    start_time: new Date(start - 30 * hour).toISOString(),
+    status: '等待中',
+    lifecycle_status: '等待中',
     closed_at: null,
-    priority_detail: null,
+    status_detail: {
+      source: 'manual',
+      decided_at: new Date(start).toISOString(),
+    },
+    priority_detail: {
+      handoff_wait: { accepted_at: new Date(start - hour).toISOString() },
+    },
     priority: 'P2',
   });
   const accepted = makeEvent({
     ...event,
     event_id: 'accepted',
+    status: '待处理',
+    lifecycle_status: '状态未明',
     priority: 'P3',
     priority_detail: { handoff_wait: { accepted_at: '2038-06-01T01:00:00Z' } },
   });
@@ -436,22 +562,22 @@ test('工作台无需新消息即可越过 6、12、24 小时，接手或终态�
   await expect(list.getByRole('listitem')).toHaveCount(3);
   await page.clock.pauseAt(start + 6 * hour);
   await expect(page.locator('.handoff-age')).toHaveCount(0);
-  await page.clock.runFor(1);
+  await page.clock.runFor(20);
   await expect(list.locator('.handoff-age.yellow')).toHaveText(
     '超 6 小时未处理',
   );
   await expect(page.locator('.inbox-aside .handoff-age')).toHaveText(
     '超 6 小时未处理',
   );
-  await page.clock.fastForward(6 * hour - 1);
+  await page.clock.fastForward(6 * hour - 20);
   await expect(list.locator('.handoff-age.yellow')).toHaveCount(1);
-  await page.clock.runFor(1);
+  await page.clock.runFor(20);
   await expect(list.locator('.handoff-age.orange')).toHaveText(
     '超 12 小时未处理',
   );
-  await page.clock.fastForward(12 * hour - 1);
+  await page.clock.fastForward(12 * hour - 20);
   await expect(list.locator('.handoff-age.orange')).toHaveCount(1);
-  await page.clock.runFor(1);
+  await page.clock.runFor(20);
   await expect(list.locator('.handoff-age.red')).toHaveText('超 24 小时未处理');
   await expect(
     list.getByRole('listitem').first().getByText('P2', { exact: true }),

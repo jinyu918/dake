@@ -677,3 +677,23 @@ def test_alert_preview_http_returns_only_preview_fields_in_requested_scope(tmp_p
 
     asyncio.run(exercise())
     assert calls == ([("local-fixture", UID, "stub-v1", 3)] if enabled else [])
+
+
+def test_manual_reopen_to_unknown_does_not_start_handoff_wait(tmp_path):
+    store = MemoryStore()
+    at = parse_time("2026-11-10T09:00:00+08:00")
+    event = Event("synthetic-closed", UID, "stub-v1", "排障", "synthetic", at, at,
+                  "已解决", "P2", "合成已结束事项", at, lifecycle_status="已解决", closed_at=at,
+                  priority_detail={"handoff_wait": {"started_at": at.isoformat()},
+                                   "clock": {"phase": "stopped", "started_at": at.isoformat()}})
+    with store.transaction(UID):
+        store.save_event(event)
+    manual = ManualDecisionService(Settings(uid=UID, data_dir=tmp_path, provider="stub"), BoundStoreFactory(store))
+    result = manual.submit(event.event_id, ManualDecisionRequest(
+        uid=UID, stream="stub-v1", expected_version=event.version, operation_id="reopen-unknown-status",
+        operator="fixture-operator", reason="合成复核后状态未明",
+        actions=[ManualFieldAction(field="status", action="set", status="状态未明")],
+    ))["event"]
+    assert result["lifecycle_status"] == "状态未明"
+    assert not result["priority_detail"]["handoff_wait"].get("started_at")
+    assert result["priority_detail"]["clock"]["phase"] == "stopped"

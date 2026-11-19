@@ -9,22 +9,103 @@ const thresholds = [
 
 type HandoffEvent = Pick<
   API.EventResponse,
-  'start_time' | 'status' | 'lifecycle_status' | 'closed_at' | 'priority_detail'
+  | 'start_time'
+  | 'status'
+  | 'lifecycle_status'
+  | 'closed_at'
+  | 'priority_detail'
+  | 'status_detail'
+  | 'updated_by'
 >;
 
+function stateEvidenceTime(detail: unknown): number {
+  if (!detail || typeof detail !== 'object') return Number.NaN;
+  if ('source' in detail && detail.source === 'manual') {
+    return 'decided_at' in detail && typeof detail.decided_at === 'string'
+      ? Date.parse(detail.decided_at)
+      : Number.NaN;
+  }
+  if (
+    !('status' in detail) ||
+    detail.status !== '等待中' ||
+    !('evidence_refs' in detail) ||
+    !Array.isArray(detail.evidence_refs)
+  ) {
+    return Number.NaN;
+  }
+  const times = detail.evidence_refs
+    .map((ref: { send_time?: unknown } | null) =>
+      typeof ref?.send_time === 'string' ? Date.parse(ref.send_time) : NaN,
+    )
+    .filter(Number.isFinite);
+  return times.length ? Math.max(...times) : Number.NaN;
+}
+
+function waitingStart(event: HandoffEvent): number {
+  let entry: API.EventRevision | undefined;
+  let priorEvidence = Number.NaN;
+  for (const revision of event.updated_by.toReversed()) {
+    if (revision.snapshot) {
+      if (revision.snapshot.lifecycle_status !== '等待中') {
+        priorEvidence = stateEvidenceTime(revision.snapshot.status_detail);
+        break;
+      }
+      entry = revision;
+    } else if (
+      revision.changed_fields.includes('lifecycle_status') ||
+      revision.action === 'created'
+    ) {
+      entry = revision;
+      break;
+    }
+  }
+
+  if (entry) {
+    const windowEnd = Date.parse(entry.window_end);
+    const recordedAt = Date.parse(entry.recorded_at ?? '');
+    if (entry.source === 'manual' && Number.isFinite(recordedAt))
+      return recordedAt;
+    const evidence = stateEvidenceTime(
+      entry.snapshot ? entry.snapshot.status_detail : event.status_detail,
+    );
+    if (
+      Number.isFinite(evidence) &&
+      evidence !== priorEvidence &&
+      (entry.snapshot || evidence <= windowEnd)
+    ) {
+      return evidence;
+    }
+    if (Number.isFinite(windowEnd)) return windowEnd;
+  } else {
+    const evidence = stateEvidenceTime(event.status_detail);
+    if (Number.isFinite(evidence) && evidence !== priorEvidence)
+      return evidence;
+  }
+  return Date.parse(event.start_time);
+}
+
 function waitStart(event: HandoffEvent): number {
-  const status = event.lifecycle_status || event.status;
+  const lifecycle: string = event.lifecycle_status;
+  const status =
+    !lifecycle || (lifecycle === '状态未明' && event.status === '待处理')
+      ? event.status
+      : lifecycle;
+  if (status === '等待中' && !event.closed_at) return waitingStart(event);
+  if (status !== '待处理' && status !== '状态未明') return Number.NaN;
+
   const wait = event.priority_detail?.handoff_wait;
   const clock = event.priority_detail?.clock;
   if (
-    status === '已解决' ||
-    status === '已取消' ||
     event.closed_at ||
     wait?.accepted_at ||
-    (!wait?.started_at && ['progress', 'stopped'].includes(clock?.phase))
+    clock?.phase === 'progress' ||
+    clock?.phase === 'stopped'
   )
     return Number.NaN;
-  return Date.parse(wait?.started_at || clock?.started_at || event.start_time);
+
+  const startedAt =
+    wait?.started_at || (clock?.phase === 'handoff' && clock.started_at);
+  return Date.parse(startedAt || (status === '待处理' ? event.start_time : ''));
 }
 
 export function HandoffAgeBadge({ event }: { event: HandoffEvent }) {

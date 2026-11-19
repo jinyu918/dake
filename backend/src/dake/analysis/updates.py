@@ -558,9 +558,10 @@ def apply_candidate(
     reopened = previous is not None and previous.get("lifecycle_status") in TERMINAL and event.lifecycle_status not in TERMINAL
     clock_facts = (candidate.priority_proposal or {}).get("clock_evidence", [])
     wait = dict(old_detail.get("handoff_wait") or {})
+    unknown = event.lifecycle_status == "状态未明" and event.status != "待处理"
     if reopened:
-        wait = {"started_at": new_end.isoformat()}
-    wait_start = parse_time(wait["started_at"]) if wait.get("started_at") else event.start_time
+        wait = {} if unknown else {"started_at": new_end.isoformat()}
+    wait_start = new_end if reopened else parse_time(wait["started_at"]) if wait.get("started_at") else event.start_time
     claimed_at.extend(max(available[key].sent_at for key in fact["evidence_ids"])
                       for fact in clock_facts if fact["kind"] == "handoff")
     if "accepted_at" not in wait:
@@ -568,16 +569,18 @@ def apply_candidate(
             wait["accepted_at"] = old_clock["started_at"]
         elif accepted := min((at for at in claimed_at if at >= wait_start), default=None):
             wait["accepted_at"] = accepted.isoformat()
-    if wait:
+    if wait or (reopened and old_detail.get("handoff_wait")):
         event.priority_detail = dict(event.priority_detail or {}, handoff_wait=wait)
     clear_legacy_timeout_upgrade(event)
 
     if (settings.priority_preview and settings.priority_calendar is not None) or old_clock:
         timed_facts = sorted(((max(available[key].sent_at for key in fact["evidence_ids"]), fact)
                               for fact in clock_facts), key=lambda pair: pair[0])
-        if old_clock or created or reopened:
+        handoff_recorded = any(fact["kind"] == "handoff" for _, fact in timed_facts)
+        if old_clock or ((created or reopened or handoff_recorded) and (not unknown or handoff_recorded)):
             clock = advance_clock(old_clock, start=new_end if reopened else start, reopened=reopened,
-                                  terminal=event.lifecycle_status in TERMINAL, actions=timed_facts)
+                                  terminal=event.lifecycle_status in TERMINAL or (reopened and unknown and not handoff_recorded),
+                                  actions=timed_facts)
             event.priority_detail = dict(event.priority_detail or {}, clock=clock)
 
     if old_impacts or new_impacts:

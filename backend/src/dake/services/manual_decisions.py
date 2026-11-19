@@ -156,12 +156,14 @@ class ManualDecisionService:
                         refresh_item_priority(event, store.customer_profile)
 
                 reopened = previous["lifecycle_status"] in TERMINAL and event.lifecycle_status not in TERMINAL
-                if reopened:
-                    event.priority_detail = dict(event.priority_detail or {}, handoff_wait={"started_at": decided_at})
+                unknown = event.lifecycle_status == "状态未明"
+                if reopened and (not unknown or (event.priority_detail or {}).get("handoff_wait")):
+                    wait = {} if unknown else {"started_at": decided_at}
+                    event.priority_detail = dict(event.priority_detail or {}, handoff_wait=wait)
                 if clock := (event.priority_detail or {}).get("clock"):
                     if reopened or event.lifecycle_status in TERMINAL:
                         updated_clock = advance_clock(clock, start=parse_time(decided_at), reopened=reopened,
-                                                      terminal=event.lifecycle_status in TERMINAL)
+                                                      terminal=event.lifecycle_status in TERMINAL or (reopened and unknown))
                         event.priority_detail["clock"] = dict(updated_clock, calendar=clock.get("calendar"))
                         refresh_item_priority(event, store.customer_profile)
 
